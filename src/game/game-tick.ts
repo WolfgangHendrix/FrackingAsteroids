@@ -71,7 +71,7 @@ export const PLAYER_MAX_HP = 100
 const ENEMY_NEARBY_DISTANCE = 60
 const STATION_NEAR_DISTANCE = 80
 const STATION_ENTER_DISTANCE = 60
-const STATION_REPAIR_DISTANCE = 15
+const STATION_REPAIR_DISTANCE = 30
 const AMBUSH_SHOOT_MIN = 0.3
 const AMBUSH_SHOOT_MAX = 0.5
 const AMBUSH_PROJECTILE_DAMAGE = 20
@@ -119,6 +119,9 @@ export interface TickState {
   firstMetalCollectedTime: number | null
   enemySpawned: boolean
   enemyNearbyFired: boolean
+
+  /** Previous tick's tutorial step — used to detect step transitions. */
+  prevTutorialStep: TutorialStep | null
 
   // Ambush (used by prologue)
   ambushEnemies: EnemyShip[]
@@ -267,6 +270,8 @@ export function createTickState(config?: TickStateConfig): TickState {
     firstMetalCollectedTime: null,
     enemySpawned: false,
     enemyNearbyFired: false,
+
+    prevTutorialStep: null,
 
     ambushEnemies: [],
     ambushSpawned: false,
@@ -922,6 +927,13 @@ export function tick(state: TickState, input: TickInput): TickResult {
   if (tutStep === 'go-to-station' && sDist <= STATION_NEAR_DISTANCE) {
     result.nearStation = true
   }
+
+  // Reset repair flag on entering drive-through so a heal that already fired
+  // this visit (e.g. during approach-station) doesn't block step completion.
+  if (tutStep === 'drive-through' && state.prevTutorialStep !== 'drive-through') {
+    state.repairedThisVisit = false
+  }
+  state.prevTutorialStep = tutStep
 
   const inStationRange = sDist <= STATION_ENTER_DISTANCE
   if (inStationRange !== state.wasInStationRange) {

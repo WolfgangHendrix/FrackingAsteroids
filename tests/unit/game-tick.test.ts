@@ -501,7 +501,7 @@ describe('game-tick', () => {
   // 13. Station repair
   // -------------------------------------------------------------------------
   describe('station repair', () => {
-    it('heals player within STATION_REPAIR_DISTANCE (15)', async () => {
+    it('heals player within STATION_REPAIR_DISTANCE (30)', async () => {
       const { tick, createTickState, PLAYER_MAX_HP } = await import('../../src/game/game-tick')
       const { createInputState } = await import('../../src/game/input')
 
@@ -562,6 +562,49 @@ describe('game-tick', () => {
       const result = tick(state, makeInput(createInputState))
       assert.equal(state.repairedThisVisit, false, 'should reset on leaving')
       assert.equal(result.stationRangeChanged, false, 'stationRangeChanged=false means left')
+    })
+
+    it('resets repairedThisVisit when tutorial transitions into drive-through', async () => {
+      const { tick, createTickState, PLAYER_MAX_HP } = await import('../../src/game/game-tick')
+      const { createInputState } = await import('../../src/game/input')
+
+      // Stage state as if the player healed during approach-station and then
+      // bought an upgrade — they're still in heal range with repairedThisVisit set.
+      const state = createTickState({
+        shipPosition: { x: 30, y: 200 },
+        stationPosition: { x: 30, y: 200 },
+        playerHp: PLAYER_MAX_HP,
+      })
+      state.repairedThisVisit = true
+      state.wasInStationRange = true
+      state.prevTutorialStep = 'trade-buy'
+      state.playerHp = 50 // simulate damage taken between heal and drive-through
+
+      const result = tick(state, makeInput(createInputState, { tutorialStep: 'drive-through' }))
+
+      assert.equal(state.prevTutorialStep, 'drive-through', 'prev step is updated')
+      assert.equal(state.playerHp, PLAYER_MAX_HP, 'heal fires after the flag reset')
+      assert.equal(result.stationRepaired, true, 'stationRepaired event fires')
+      assert.equal(state.repairedThisVisit, true, 'flag flips back true after re-heal')
+    })
+
+    it('does not re-reset repairedThisVisit on subsequent ticks in drive-through', async () => {
+      const { tick, createTickState, PLAYER_MAX_HP } = await import('../../src/game/game-tick')
+      const { createInputState } = await import('../../src/game/input')
+
+      const state = createTickState({
+        shipPosition: { x: 30, y: 200 },
+        stationPosition: { x: 30, y: 200 },
+        playerHp: PLAYER_MAX_HP,
+      })
+      state.prevTutorialStep = 'drive-through'
+      state.repairedThisVisit = true
+      state.wasInStationRange = true
+
+      const result = tick(state, makeInput(createInputState, { tutorialStep: 'drive-through' }))
+
+      assert.equal(state.repairedThisVisit, true, 'flag stays set, no re-reset')
+      assert.equal(result.stationRepaired, false, 'no duplicate heal event')
     })
   })
 
