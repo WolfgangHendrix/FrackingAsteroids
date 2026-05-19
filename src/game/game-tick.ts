@@ -35,6 +35,7 @@ import {
   checkProjectileAsteroidCollisions,
   checkBeamAsteroidCollisions,
 } from './collision'
+import { ASTEROID_SIZE_RADIUS } from './asteroid-model'
 import {
   createMetalChunk,
   updateMetalChunk,
@@ -47,8 +48,10 @@ import {
   createEnemyShip,
   updateEnemyShip,
   checkProjectileEnemyCollisions,
+  checkBeamEnemyCollisions,
   checkEnemyProjectilePlayerCollisions,
   updateEnemyProjectile,
+  ENEMY_COLLISION_RADIUS,
   ENEMY_SPAWN_DISTANCE,
   ENEMY_PROJECTILE_DAMAGE,
 } from './enemy-ship'
@@ -96,6 +99,8 @@ export interface TickState {
   projectileElapsed: Map<string, number>
   asteroidHitCounts: Map<string, number>
   blasterTier: number
+  /** Collector upgrade tier (1–5). Widens the magnet pickup range. */
+  collectorTier: number
   activeMiningTool: MiningTool
   fireRateBonus: number
 
@@ -225,10 +230,19 @@ export interface TickStateConfig {
   shipPosition?: { x: number; y: number }
   playerHp?: number
   blasterTier?: number
+  collectorTier?: number
   miningTool?: MiningTool
   fireRateBonus?: number
   asteroids?: Asteroid[]
   stationPosition?: { x: number; y: number }
+}
+
+/** Collector pickup range per upgrade tier (1–5). */
+const COLLECTOR_RANGE_BY_TIER = [12, 20, 28, 36, 50] as const
+
+export function collectorRangeForTier(tier: number): number {
+  const clamped = Math.max(1, Math.min(5, Math.round(tier)))
+  return COLLECTOR_RANGE_BY_TIER[clamped - 1]
 }
 
 export function createTickState(config?: TickStateConfig): TickState {
@@ -255,6 +269,7 @@ export function createTickState(config?: TickStateConfig): TickState {
     projectileElapsed: new Map(),
     asteroidHitCounts: hitCounts,
     blasterTier: config?.blasterTier ?? 1,
+    collectorTier: config?.collectorTier ?? 1,
     activeMiningTool: config?.miningTool ?? 'blaster',
     fireRateBonus: config?.fireRateBonus ?? 1.0,
 
@@ -342,6 +357,80 @@ function emptyResult(): TickResult {
     stripComplete: false,
     prologuePlayerKilled: false,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Aim-targeting helpers
+// ---------------------------------------------------------------------------
+
+/** Maximum distance auto-fire will look for a target along the aim ray. */
+const AUTO_FIRE_RANGE = 200
+
+/** Squared distance from point (cx, cy) to segment (ax, ay)→(bx, by). */
+function pointToSegmentDistSq(
+  cx: number,
+  cy: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number {
+  const abx = bx - ax
+  const aby = by - ay
+  const lenSq = abx * abx + aby * aby
+  if (lenSq < 0.0001) {
+    const dx = cx - ax
+    const dy = cy - ay
+    return dx * dx + dy * dy
+  }
+  let t = ((cx - ax) * abx + (cy - ay) * aby) / lenSq
+  t = Math.max(0, Math.min(1, t))
+  const px = ax + t * abx
+  const py = ay + t * aby
+  const dx = cx - px
+  const dy = cy - py
+  return dx * dx + dy * dy
+}
+
+/**
+ * True when a ray from the ship along the aim direction (out to AUTO_FIRE_RANGE)
+ * passes through a live asteroid or enemy. Used to gate auto-fire so the player
+ * doesn't shoot into empty space.
+ */
+function aimRayHasTarget(state: TickState, aim: { x: number; y: number }): boolean {
+  const ship = state.ship
+  const dx = aim.x - ship.x
+  const dy = aim.y - ship.y
+  const dist = Math.hypot(dx, dy)
+  if (dist < 0.5) return false
+  const ux = dx / dist
+  const uy = dy / dist
+  const endX = ship.x + ux * AUTO_FIRE_RANGE
+  const endY = ship.y + uy * AUTO_FIRE_RANGE
+
+  for (const a of state.asteroids) {
+    if (a.hp <= 0) continue
+    const r = ASTEROID_SIZE_RADIUS[a.size] ?? 5
+    if (pointToSegmentDistSq(a.x, a.y, ship.x, ship.y, endX, endY) < r * r) return true
+  }
+  if (state.enemy && state.enemy.alive) {
+    if (
+      pointToSegmentDistSq(state.enemy.x, state.enemy.y, ship.x, ship.y, endX, endY) <
+      ENEMY_COLLISION_RADIUS * ENEMY_COLLISION_RADIUS
+    ) {
+      return true
+    }
+  }
+  for (const e of state.ambushEnemies) {
+    if (!e.alive) continue
+    if (
+      pointToSegmentDistSq(e.x, e.y, ship.x, ship.y, endX, endY) <
+      ENEMY_COLLISION_RADIUS * ENEMY_COLLISION_RADIUS
+    ) {
+      return true
+    }
+  }
+  return false
 }
 
 // ---------------------------------------------------------------------------
@@ -569,8 +658,11 @@ export function tick(state: TickState, input: TickInput): TickResult {
     }
   }
 
-  // Resolve effective collecting flag (prologue auto-collect OR player input)
-  const collecting = state.prologueAutoCollect || input.collecting
+  // Collection is always automatic — the magnet runs by default. `input.collecting`
+  // (E key / mobile button / right-click) is now effectively cosmetic. Only the
+  // pickup range varies, driven by the Collector upgrade tier.
+  const collecting = true
+  void input.collecting
 
   // --- Ship update ---
   // During prologue: player controls rotation via joystick/input, auto-fire aims
@@ -634,9 +726,42 @@ export function tick(state: TickState, input: TickInput): TickResult {
   // --- Blaster cooldown ---
   updateBlasterCooldown(state.blasterState, dt)
 
+  // Snapshot the player's actual mouse-hold state BEFORE the auto-fire block
+  // may flip mouseHoldingFire on. This lets us distinguish "user is manually
+  // holding fire" from "auto-fire ran last frame and left fireTarget set."
+  const userHoldingFire = state.mouseHoldingFire
+
+  // Clear any stale fireTarget when the user isn't manually holding — without
+  // this the lazer would keep beaming for one frame after aim leaves a target,
+  // because the lazer branch only nulls fireTarget when !mouseHoldingFire and
+  // auto-fire had just set mouseHoldingFire true last tick.
+  if (!userHoldingFire) {
+    state.fireTarget = null
+  }
+
   // --- Hold-to-fire: re-set fireTarget each frame while held ---
-  if (state.mouseHoldingFire && state.aimActive && input.aimWorldPosition) {
+  if (userHoldingFire && state.aimActive && input.aimWorldPosition) {
     state.fireTarget = { x: input.aimWorldPosition.x, y: input.aimWorldPosition.y }
+  }
+
+  // --- Auto-fire: when aim is active and the aim ray passes through a live
+  // asteroid or enemy, fire automatically (player doesn't have to hold).
+  // Skip during prologue — that flow has its own scripted auto-fire.
+  if (!isPrologue && state.aimActive && input.aimWorldPosition && state.inputCooldown <= 0) {
+    if (aimRayHasTarget(state, input.aimWorldPosition)) {
+      state.fireTarget = { x: input.aimWorldPosition.x, y: input.aimWorldPosition.y }
+      state.mouseHoldingFire = true
+    }
+  }
+
+  // --- Universal "only fire at targets" gate ---
+  // Whatever set fireTarget (manual hold, gamepad right-stick aim, mobile fire
+  // button, auto-fire), only proceed if the aim direction actually passes
+  // through a live asteroid or enemy. Skip during prologue (it scripts its
+  // own aim and always targets a live entity anyway).
+  if (!isPrologue && state.fireTarget && !aimRayHasTarget(state, state.fireTarget)) {
+    state.fireTarget = null
+    state.mouseHoldingFire = false
   }
 
   // --- Fire ---
@@ -687,6 +812,49 @@ export function tick(state: TickState, input: TickInput): TickResult {
       result.beamEndX = beamResult.beamEndX
       result.beamEndY = beamResult.beamEndY
       result.beamHits = beamResult.hits
+
+      // --- Beam vs enemies (along the segment already truncated by asteroids,
+      // so beams don't reach enemies behind rocks) ---
+      const beamHitEnemies: { enemy: EnemyShip; killed: boolean; isAmbush: boolean; t: number }[] =
+        []
+      const tryBeamEnemy = (en: EnemyShip | null, isAmbush: boolean): void => {
+        if (!en || !en.alive) return
+        const r = checkBeamEnemyCollisions(
+          state.ship.x,
+          state.ship.y,
+          result.beamEndX,
+          result.beamEndY,
+          frameDamage,
+          en,
+        )
+        if (r.hit) beamHitEnemies.push({ enemy: en, killed: r.killed, isAmbush, t: r.t })
+      }
+      tryBeamEnemy(state.enemy, false)
+      for (const ae of state.ambushEnemies) tryBeamEnemy(ae, true)
+
+      // Truncate beam end to the nearest enemy hit if any
+      if (beamHitEnemies.length > 0) {
+        let minT = 1
+        for (const h of beamHitEnemies) if (h.t < minT) minT = h.t
+        const bx = result.beamEndX - state.ship.x
+        const by = result.beamEndY - state.ship.y
+        result.beamEndX = state.ship.x + bx * minT
+        result.beamEndY = state.ship.y + by * minT
+
+        // Handle kills
+        for (const h of beamHitEnemies) {
+          if (!h.killed) continue
+          const box = createScrapBox(h.enemy.x, h.enemy.y)
+          state.scrapBoxes.push(box)
+          result.enemyDestroyed = { x: h.enemy.x, y: h.enemy.y }
+          result.enemyDestroyedEvent = true
+          if (h.isAmbush) {
+            result.ambushEnemiesDestroyed.push(h.enemy)
+          } else if (state.enemy === h.enemy) {
+            state.enemy = null
+          }
+        }
+      }
 
       // Process beam hits for events and metal spawning
       for (const hit of beamResult.hits) {
@@ -816,7 +984,7 @@ export function tick(state: TickState, input: TickInput): TickResult {
       }
     }
 
-    const newEnemyProjs = updateEnemyShip(state.enemy, state.ship, dt)
+    const newEnemyProjs = updateEnemyShip(state.enemy, state.ship, dt, state.asteroids)
     for (const proj of newEnemyProjs) {
       state.enemyProjectiles.push(proj)
       result.newEnemyProjectiles.push(proj)
@@ -873,7 +1041,9 @@ export function tick(state: TickState, input: TickInput): TickResult {
   for (let i = state.scrapBoxes.length - 1; i >= 0; i--) {
     updateScrapBox(state.scrapBoxes[i], dt)
     if (collecting) {
-      const collectorRange = isPrologue ? PROLOGUE_SHIP.collectorRange : undefined
+      const collectorRange = isPrologue
+        ? PROLOGUE_SHIP.collectorRange
+        : collectorRangeForTier(state.collectorTier)
       const collected = attractScrapBoxToShip(state.scrapBoxes[i], state.ship, dt, collectorRange)
       if (collected) {
         result.scrapCollected.push({ id: state.scrapBoxes[i].id, value: SCRAP_BOX_VALUE })
@@ -890,7 +1060,9 @@ export function tick(state: TickState, input: TickInput): TickResult {
     updateMetalChunk(metal, dt)
 
     if (collecting) {
-      const metalRange = isPrologue ? PROLOGUE_SHIP.collectorRange : undefined
+      const metalRange = isPrologue
+        ? PROLOGUE_SHIP.collectorRange
+        : collectorRangeForTier(state.collectorTier)
       const collected = attractMetalToShip(metal, state.ship, dt, metalRange)
       if (collected) {
         if (state.firstMetalCollectedTime === null) {
@@ -953,7 +1125,7 @@ export function tick(state: TickState, input: TickInput): TickResult {
   if (state.ambushEnemies.length > 0) {
     for (const ae of state.ambushEnemies) {
       if (!ae.alive) continue
-      const newProjs = updateEnemyShip(ae, state.ship, dt)
+      const newProjs = updateEnemyShip(ae, state.ship, dt, state.asteroids)
       if (ae.shootTimer > AMBUSH_SHOOT_MAX) {
         ae.shootTimer = AMBUSH_SHOOT_MIN + Math.random() * (AMBUSH_SHOOT_MAX - AMBUSH_SHOOT_MIN)
       }

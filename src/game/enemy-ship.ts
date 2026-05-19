@@ -2,8 +2,9 @@ import * as THREE from 'three'
 import type { Ship } from '@/lib/schemas'
 import { VOXEL_SIZE } from './ship-constants'
 import { SHIP_COLLISION_RADIUS } from './collision-constants'
-import { PROJECTILE_RADIUS } from './blaster-constants'
-import type { Projectile } from './types'
+import { PROJECTILE_RADIUS, LAZER_DAMAGE_MULTIPLIER } from './blaster-constants'
+import type { Asteroid, Projectile } from './types'
+import { segmentBlockedByAsteroid } from './collision'
 
 // ---------------------------------------------------------------------------
 // Enemy ship constants
@@ -308,8 +309,16 @@ function nextCardinal(current: number, direction: number): number {
 /**
  * Update enemy ship AI — smoothly orbits the player like a dogfight.
  * Returns new projectiles spawned this frame (if any).
+ *
+ * Pass `asteroids` so the enemy holds fire when its line of sight to the
+ * player is blocked by a live asteroid (no more shooting through rocks).
  */
-export function updateEnemyShip(enemy: EnemyShip, player: Ship, dt: number): EnemyProjectile[] {
+export function updateEnemyShip(
+  enemy: EnemyShip,
+  player: Ship,
+  dt: number,
+  asteroids: Asteroid[] = [],
+): EnemyProjectile[] {
   if (!enemy.alive) return []
 
   const newProjectiles: EnemyProjectile[] = []
@@ -410,20 +419,31 @@ export function updateEnemyShip(enemy: EnemyShip, player: Ship, dt: number): Ene
   // --- Shoot timer ---
   enemy.shootTimer -= dt
   if (enemy.shootTimer <= 0) {
-    enemy.shootTimer =
-      ENEMY_SHOOT_MIN_INTERVAL + Math.random() * (ENEMY_SHOOT_INTERVAL - ENEMY_SHOOT_MIN_INTERVAL)
+    // Line-of-sight check: don't fire through asteroids.
+    // If blocked, reset to a short retry interval instead of a full reload.
+    const losBlocked =
+      asteroids.length > 0 &&
+      segmentBlockedByAsteroid(enemy.x, enemy.y, player.x, player.y, asteroids)
 
-    // Fire toward player
-    if (toPlayerDist > 0.1) {
-      const nx = toPlayerDx / toPlayerDist
-      const ny = toPlayerDy / toPlayerDist
-      const proj = createEnemyProjectile(
-        enemy.x + nx * 4,
-        enemy.y + ny * 4,
-        nx * ENEMY_PROJECTILE_SPEED,
-        ny * ENEMY_PROJECTILE_SPEED,
-      )
-      newProjectiles.push(proj)
+    if (losBlocked) {
+      enemy.shootTimer = 0.25 + Math.random() * 0.25
+    } else {
+      enemy.shootTimer =
+        ENEMY_SHOOT_MIN_INTERVAL +
+        Math.random() * (ENEMY_SHOOT_INTERVAL - ENEMY_SHOOT_MIN_INTERVAL)
+
+      // Fire toward player
+      if (toPlayerDist > 0.1) {
+        const nx = toPlayerDx / toPlayerDist
+        const ny = toPlayerDy / toPlayerDist
+        const proj = createEnemyProjectile(
+          enemy.x + nx * 4,
+          enemy.y + ny * 4,
+          nx * ENEMY_PROJECTILE_SPEED,
+          ny * ENEMY_PROJECTILE_SPEED,
+        )
+        newProjectiles.push(proj)
+      }
     }
   }
 
@@ -523,6 +543,70 @@ export function checkProjectileEnemyCollisions(
   }
 
   return { surviving, hitProjectileIds }
+}
+
+/**
+ * Closest distance squared from a point to a line segment.
+ */
+function pointToSegmentDistSqLocal(
+  cx: number,
+  cy: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number {
+  const abx = bx - ax
+  const aby = by - ay
+  const lenSq = abx * abx + aby * aby
+  if (lenSq < 0.0001) {
+    const dx = cx - ax
+    const dy = cy - ay
+    return dx * dx + dy * dy
+  }
+  let t = ((cx - ax) * abx + (cy - ay) * aby) / lenSq
+  t = Math.max(0, Math.min(1, t))
+  const px = ax + t * abx
+  const py = ay + t * aby
+  const dx = cx - px
+  const dy = cy - py
+  return dx * dx + dy * dy
+}
+
+/**
+ * Apply lazer beam damage to an enemy if the beam passes through it.
+ * Returns `{ hit: true, t }` if the beam intersects the enemy (where `t` is
+ * the parameter along the beam at the enemy's center, in [0,1]), so the caller
+ * can truncate the beam endpoint at the nearest enemy.
+ */
+export function checkBeamEnemyCollisions(
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number,
+  damage: number,
+  enemy: EnemyShip,
+): { hit: boolean; t: number; killed: boolean } {
+  if (!enemy.alive || enemy.hp <= 0) return { hit: false, t: 1, killed: false }
+
+  const distSq = pointToSegmentDistSqLocal(enemy.x, enemy.y, startX, startY, endX, endY)
+  if (distSq >= ENEMY_COLLISION_RADIUS * ENEMY_COLLISION_RADIUS) {
+    return { hit: false, t: 1, killed: false }
+  }
+
+  const effective = damage * LAZER_DAMAGE_MULTIPLIER
+  enemy.hp = Math.max(0, enemy.hp - effective)
+  const killed = enemy.hp <= 0
+  if (killed) enemy.alive = false
+
+  const dx = endX - startX
+  const dy = endY - startY
+  const lenSq = dx * dx + dy * dy
+  let t = 1
+  if (lenSq > 0.0001) {
+    t = Math.max(0, Math.min(1, ((enemy.x - startX) * dx + (enemy.y - startY) * dy) / lenSq))
+  }
+  return { hit: true, t, killed }
 }
 
 // ---------------------------------------------------------------------------

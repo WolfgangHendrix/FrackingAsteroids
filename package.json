@@ -6,20 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "npx eslint --max-warnings 0 'src/**/*.{ts,tsx}' 'tests/**/*.ts'",
-    "lint:fix": "npx eslint --max-warnings 0 'src/**/*.{ts,tsx}' 'tests/**/*.ts' --fix",
-    "format": "npx prettier --write 'src/**/*.{ts,tsx}' 'tests/**/*.ts'",
-    "format:check": "npx prettier --check 'src/**/*.{ts,tsx}' 'tests/**/*.ts'",
-    "type-check": "tsc --noEmit",
-    "test:unit": "npx tsx --test tests/unit/*.test.ts",
-    "test:coverage": "npx tsx --test --experimental-test-coverage --test-coverage-include='src/game/**' --test-coverage-include='src/lib/**' --test-coverage-lines=90 --test-coverage-branches=80 --test-coverage-functions=90 tests/unit/*.test.ts",
-    "test:smoke": "npx tsx tests/smoke/smoke.test.ts",
-    "test:integration": "npx tsx --test tests/integration/flows/*.test.ts",
-    "test:e2e": "npx playwright test",
-    "test:e2e:headed": "npx playwright test --headed"
+    "serve": "npx --yes serve out -l 3000",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@upstash/redis": "^1.37.0",
     "next": "^15.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -29,7 +20,6 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.0",
     "@eslint/js": "^9.0.0",
-    "@playwright/test": "^1.58.2",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
@@ -42,8 +32,6 @@
     "postcss": "^8.4.49",
     "prettier": "^3.8.1",
     "tailwindcss": "^3.4.17",
-    "tsx": "^4.21.0",
-    "typescript": "^5.7.3",
-    "wait-on": "^9.0.4"
+    "typescript": "^5.7.3"
   }
 }

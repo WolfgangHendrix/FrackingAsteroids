@@ -68,8 +68,10 @@ export function TradeMenu({
         <div className="flex items-center justify-between px-5 py-3 border-b border-hud-green/30">
           <h2 className="text-hud-green text-lg font-bold tracking-wider">TRADE STATION</h2>
           <button
+            data-menu-item
+            data-menu-back
             onClick={onClose}
-            className="text-white/40 hover:text-white/80 text-xl transition-colors"
+            className="text-white/40 hover:text-white/80 focus:text-white focus:outline-none focus:ring-2 focus:ring-white/40 rounded text-xl transition-colors"
           >
             X
           </button>
@@ -78,8 +80,9 @@ export function TradeMenu({
         {/* Tab bar */}
         <div className="flex border-b border-hud-green/30">
           <button
+            data-menu-item
             onClick={() => !isTutorial && setManualTab('sell')}
-            className={`flex-1 py-2 text-sm font-bold tracking-wider transition-colors ${
+            className={`flex-1 py-2 text-sm font-bold tracking-wider transition-colors focus:outline-none focus:ring-2 focus:ring-hud-amber ${
               activeTab === 'sell'
                 ? 'text-hud-amber bg-hud-amber/10 border-b-2 border-hud-amber'
                 : 'text-white/40 hover:text-white/60'
@@ -88,8 +91,9 @@ export function TradeMenu({
             SELL
           </button>
           <button
+            data-menu-item
             onClick={() => !isTutorial && setManualTab('buy')}
-            className={`flex-1 py-2 text-sm font-bold tracking-wider transition-colors ${
+            className={`flex-1 py-2 text-sm font-bold tracking-wider transition-colors focus:outline-none focus:ring-2 focus:ring-hud-blue ${
               activeTab === 'buy'
                 ? 'text-hud-blue bg-hud-blue/10 border-b-2 border-hud-blue'
                 : 'text-white/40 hover:text-white/60'
@@ -181,9 +185,10 @@ function SellPanel({
         <span className="text-hud-amber">+{totalSellValue} scrap</span>
       </div>
       <button
+        data-menu-item
         onClick={onSell}
         disabled={!hasMaterials}
-        className={`mt-2 w-full py-3 rounded font-bold text-sm tracking-wider transition-all ${
+        className={`mt-2 w-full py-3 rounded font-bold text-sm tracking-wider transition-all focus:outline-none focus:ring-2 focus:ring-hud-amber ${
           hasMaterials
             ? isTutorial
               ? 'bg-hud-amber/30 border-2 border-hud-amber text-hud-amber animate-pulse hover:bg-hud-amber/50'
@@ -244,9 +249,10 @@ function BuyPanel({
               </div>
             </div>
             <button
+              data-menu-item
               onClick={() => onBuy(item.type, item.cost)}
               disabled={!canAfford}
-              className={`ml-3 px-4 py-2 rounded text-xs font-bold tracking-wider transition-all ${
+              className={`ml-3 px-4 py-2 rounded text-xs font-bold tracking-wider transition-all focus:outline-none focus:ring-2 focus:ring-hud-blue ${
                 canAfford
                   ? highlight
                     ? 'bg-hud-green/30 border border-hud-green text-hud-green hover:bg-hud-green/50'
@@ -277,9 +283,10 @@ function BuyPanel({
           </div>
         </div>
         <button
+          data-menu-item
           onClick={onBuyLazer}
           disabled={!canAffordLazer}
-          className={`ml-3 px-4 py-2 rounded text-xs font-bold tracking-wider transition-all ${
+          className={`ml-3 px-4 py-2 rounded text-xs font-bold tracking-wider transition-all focus:outline-none focus:ring-2 focus:ring-hud-blue ${
             hasLazer
               ? 'bg-white/5 border border-white/10 text-white/20 cursor-not-allowed'
               : canAffordLazer

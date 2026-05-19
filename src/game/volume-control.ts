@@ -4,7 +4,7 @@
  */
 
 let sfxVolume = 0.7
-let musicVolume = 0.5
+let musicVolume = 0.25
 
 /** Get the current SFX volume (0–1). */
 export function getSfxVolume(): number {

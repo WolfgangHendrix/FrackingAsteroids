@@ -190,12 +190,22 @@ export function TutorialOverlay({
         <StepDots step={step} />
         <p className="text-hud-green text-xs sm:text-sm md:text-base">{text}</p>
         {frozen && (
-          <p className="text-white/50 text-xs mt-2 animate-pulse">Press any key to continue</p>
+          <>
+            <p className="text-white/50 text-xs mt-2 animate-pulse">Press any key to continue</p>
+            {/* Invisible focusable target so gamepad A press fires onDismiss. */}
+            <button
+              data-menu-item
+              onClick={onDismiss}
+              aria-label="Continue"
+              className="pointer-events-auto absolute opacity-0 w-px h-px"
+            />
+          </>
         )}
         {!frozen && !confirming && (
           <button
+            data-menu-item
             onClick={handleSkipClick}
-            className="pointer-events-auto mt-3 text-white/40 hover:text-white/70 text-xs transition-colors"
+            className="pointer-events-auto mt-3 text-white/40 hover:text-white/70 focus:text-white focus:outline-none focus:ring-2 focus:ring-white/40 rounded text-xs transition-colors"
             data-testid="tutorial-skip"
           >
             SKIP
@@ -209,15 +219,18 @@ export function TutorialOverlay({
             <p className="text-white/60 text-xs">Skip the tutorial?</p>
             <div className="flex gap-3">
               <button
+                data-menu-item
                 onClick={handleSkipClick}
-                className="pointer-events-auto px-3 py-1 text-hud-red text-xs border border-hud-red/40 rounded hover:bg-hud-red/20 transition-colors"
+                className="pointer-events-auto px-3 py-1 text-hud-red text-xs border border-hud-red/40 rounded hover:bg-hud-red/20 focus:bg-hud-red/30 focus:outline-none focus:ring-2 focus:ring-hud-red transition-colors"
                 data-testid="tutorial-skip-yes"
               >
                 YES
               </button>
               <button
+                data-menu-item
+                data-menu-back
                 onClick={handleCancelSkip}
-                className="pointer-events-auto px-3 py-1 text-white/50 text-xs border border-white/20 rounded hover:bg-white/10 transition-colors"
+                className="pointer-events-auto px-3 py-1 text-white/50 text-xs border border-white/20 rounded hover:bg-white/10 focus:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/40 transition-colors"
                 data-testid="tutorial-skip-no"
               >
                 NO

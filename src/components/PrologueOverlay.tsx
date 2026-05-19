@@ -85,7 +85,18 @@ function ArbiterDialogue({ onComplete }: { onComplete: () => void }) {
           &quot;{line}&quot;
         </p>
       ))}
-      {!allRevealed && <p className="text-white/40 text-xs mt-2 animate-pulse">Tap to continue</p>}
+      {!allRevealed && (
+        <>
+          <p className="text-white/40 text-xs mt-2 animate-pulse">Tap to continue</p>
+          {/* Invisible focusable target so gamepad A press advances dialogue. */}
+          <button
+            data-menu-item
+            onClick={advance}
+            aria-label="Advance dialogue"
+            className="pointer-events-auto absolute opacity-0 w-px h-px"
+          />
+        </>
+      )}
     </div>
   )
 }
@@ -170,8 +181,9 @@ export function PrologueOverlay({ step, onSkip, onDialogueComplete }: PrologueOv
       <div className="absolute bottom-8 sm:bottom-12 left-1/2 -translate-x-1/2">
         {!confirming && (
           <button
+            data-menu-item
             onClick={handleSkipClick}
-            className="pointer-events-auto text-white/30 hover:text-white/60 text-xs font-mono transition-colors"
+            className="pointer-events-auto text-white/30 hover:text-white/60 focus:text-white/90 focus:outline-none focus:ring-2 focus:ring-white/40 rounded text-xs font-mono transition-colors"
             data-testid="prologue-skip"
           >
             SKIP INTRO
@@ -185,15 +197,18 @@ export function PrologueOverlay({ step, onSkip, onDialogueComplete }: PrologueOv
             <p className="text-white/50 text-xs font-mono">Skip the intro?</p>
             <div className="flex gap-3">
               <button
+                data-menu-item
                 onClick={handleSkipClick}
-                className="px-3 py-1 text-hud-red text-xs font-mono border border-hud-red/40 rounded hover:bg-hud-red/20 transition-colors"
+                className="px-3 py-1 text-hud-red text-xs font-mono border border-hud-red/40 rounded hover:bg-hud-red/20 focus:bg-hud-red/30 focus:outline-none focus:ring-2 focus:ring-hud-red transition-colors"
                 data-testid="prologue-skip-yes"
               >
                 YES
               </button>
               <button
+                data-menu-item
+                data-menu-back
                 onClick={handleCancelSkip}
-                className="px-3 py-1 text-white/50 text-xs font-mono border border-white/20 rounded hover:bg-white/10 transition-colors"
+                className="px-3 py-1 text-white/50 text-xs font-mono border border-white/20 rounded hover:bg-white/10 focus:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/40 transition-colors"
                 data-testid="prologue-skip-no"
               >
                 NO

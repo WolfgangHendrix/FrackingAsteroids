@@ -89,3 +89,223 @@ body {
     opacity: 0;
   }
 }
+
+/* ---------------------------------------------------------------------- */
+/* Main menu atmospherics                                                  */
+/* ---------------------------------------------------------------------- */
+
+/* Parallax star drift — three speeds.                                     */
+/* The layer itself moves; child stars stay locally positioned.            */
+@keyframes drift-far {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-30%, 0, 0);
+  }
+}
+@keyframes drift-mid {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-40%, 0, 0);
+  }
+}
+@keyframes drift-near {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-60%, 0, 0);
+  }
+}
+
+/* Subtle twinkle for the nearest star layer */
+@keyframes twinkle {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Background asteroid drifters */
+@keyframes float-across {
+  from {
+    transform: translate3d(-15vw, 0, 0) rotate(0deg);
+  }
+  to {
+    transform: translate3d(115vw, 0, 0) rotate(90deg);
+  }
+}
+
+/* Shooting star — diagonal streak across the screen */
+@keyframes shooting-star {
+  0% {
+    transform: translate3d(-10vw, -10vh, 0) rotate(20deg);
+    opacity: 0;
+  }
+  5% {
+    opacity: 1;
+  }
+  20% {
+    transform: translate3d(110vw, 60vh, 0) rotate(20deg);
+    opacity: 0;
+  }
+  100% {
+    transform: translate3d(110vw, 60vh, 0) rotate(20deg);
+    opacity: 0;
+  }
+}
+
+/* Title glow pulse — oscillate text-shadow blur radius */
+@keyframes title-pulse {
+  0%,
+  100% {
+    text-shadow:
+      -1px 0 0 rgba(255, 70, 70, 0.55),
+      1px 0 0 rgba(70, 170, 255, 0.55),
+      0 0 4px rgba(0, 255, 136, 0.6),
+      0 0 12px rgba(0, 255, 136, 0.25);
+  }
+  50% {
+    text-shadow:
+      -1px 0 0 rgba(255, 70, 70, 0.65),
+      1px 0 0 rgba(70, 170, 255, 0.65),
+      0 0 8px rgba(0, 255, 136, 0.95),
+      0 0 24px rgba(0, 255, 136, 0.55),
+      0 0 40px rgba(0, 255, 136, 0.25);
+  }
+}
+
+@keyframes bracket-pulse {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ---- Main-menu classes ---- */
+
+.menu-title {
+  /* Baseline glow + chromatic aberration so the title looks lit pre-animation */
+  text-shadow:
+    -1px 0 0 rgba(255, 70, 70, 0.55),
+    1px 0 0 rgba(70, 170, 255, 0.55),
+    0 0 6px rgba(0, 255, 136, 0.6),
+    0 0 18px rgba(0, 255, 136, 0.3);
+  animation: title-pulse 3.2s ease-in-out infinite;
+}
+
+.menu-starfield-far {
+  animation: drift-far 240s linear infinite;
+}
+.menu-starfield-mid {
+  animation: drift-mid 120s linear infinite;
+}
+.menu-starfield-near {
+  animation: drift-near 60s linear infinite;
+}
+.menu-star-twinkle {
+  animation: twinkle 4s ease-in-out infinite;
+}
+
+.menu-asteroid {
+  position: absolute;
+  border-radius: 42% 58% 55% 45% / 50% 45% 55% 50%;
+  background: radial-gradient(circle at 35% 30%, #6b5d4a 0%, #4a4030 60%, #2c2418 100%);
+  box-shadow:
+    inset -4px -6px 10px rgba(0, 0, 0, 0.55),
+    0 0 18px rgba(0, 0, 0, 0.4);
+  opacity: 0.55;
+  animation: float-across linear infinite;
+  will-change: transform;
+}
+
+.menu-shooting-star {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 160px;
+  height: 1.5px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.9));
+  filter: drop-shadow(0 0 4px rgba(180, 220, 255, 0.8));
+  opacity: 0;
+  animation: shooting-star 9s ease-in infinite;
+  pointer-events: none;
+}
+
+/* Subtle scanlines overlay */
+.menu-scanlines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 2px,
+    rgba(0, 0, 0, 0.08) 3px
+  );
+  mix-blend-mode: multiply;
+  z-index: 1;
+}
+
+/* Focused-button brackets — ▸ LABEL ◂                                     */
+/* Apply on :focus and :focus-visible so gamepad-driven .focus() works     */
+/* even when the user hasn't tabbed (Chrome heuristic).                    */
+[data-menu-item]:focus,
+[data-menu-item]:focus-visible {
+  position: relative;
+}
+[data-menu-item]:focus::before,
+[data-menu-item]:focus-visible::before,
+[data-menu-item]:focus::after,
+[data-menu-item]:focus-visible::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-weight: bold;
+  pointer-events: none;
+  animation: bracket-pulse 1.2s ease-in-out infinite;
+}
+[data-menu-item]:focus::before,
+[data-menu-item]:focus-visible::before {
+  content: '▸';
+  right: calc(100% + 6px);
+  color: currentColor;
+  text-shadow: 0 0 8px currentColor;
+}
+[data-menu-item]:focus::after,
+[data-menu-item]:focus-visible::after {
+  content: '◂';
+  left: calc(100% + 6px);
+  color: currentColor;
+  text-shadow: 0 0 8px currentColor;
+}
+
+/* Reduced-motion: kill all menu animations.                               */
+@media (prefers-reduced-motion: reduce) {
+  .menu-title,
+  .menu-starfield-far,
+  .menu-starfield-mid,
+  .menu-starfield-near,
+  .menu-star-twinkle,
+  .menu-asteroid,
+  .menu-shooting-star,
+  [data-menu-item]:focus::before,
+  [data-menu-item]:focus-visible::before,
+  [data-menu-item]:focus::after,
+  [data-menu-item]:focus-visible::after {
+    animation: none;
+  }
+  .menu-shooting-star {
+    display: none;
+  }
+}

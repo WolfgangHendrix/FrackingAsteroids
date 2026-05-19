@@ -1,11 +1,11 @@
 'use client'
 
-import { useRef, useCallback } from 'react'
-import type { GameState } from '@/lib/schemas'
-import type { SaveSlotId } from '@/lib/schemas'
+import { useCallback } from 'react'
+import { GameStateSchema } from '@/lib/schemas'
+import type { GameState, SaveSlotId } from '@/lib/schemas'
 import { saveSlotSummary } from '@/components/StartScreen'
 
-const AUTOSAVE_INTERVAL = 30_000
+const SAVE_KEY_PREFIX = 'fracking-asteroids-save:'
 const ACTIVE_SLOT_KEY = 'fracking-asteroids-active-slot'
 
 export function getActiveSlot(): SaveSlotId | null {
@@ -23,25 +23,15 @@ export function clearActiveSlot(): void {
 }
 
 export function useGamePersistence(slotId: SaveSlotId | null) {
-  const _lastSave = useRef<number>(0)
-  void _lastSave
-  void AUTOSAVE_INTERVAL
-
   const save = useCallback(
     async (state: GameState) => {
       if (!slotId) return
+      if (typeof window === 'undefined') return
       try {
-        await fetch(`/api/game/${slotId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(state),
-        })
-        saveSlotSummary({
-          slotId,
-          timestamp: state.timestamp,
-        })
+        localStorage.setItem(`${SAVE_KEY_PREFIX}${slotId}`, JSON.stringify(state))
+        saveSlotSummary({ slotId, timestamp: state.timestamp })
       } catch {
-        // silently ignore save failures
+        // ignore quota errors silently
       }
     },
     [slotId],
@@ -49,10 +39,13 @@ export function useGamePersistence(slotId: SaveSlotId | null) {
 
   const load = useCallback(async (): Promise<GameState | null> => {
     if (!slotId) return null
+    if (typeof window === 'undefined') return null
     try {
-      const res = await fetch(`/api/game/${slotId}`)
-      if (!res.ok) return null
-      return (await res.json()) as GameState
+      const raw = localStorage.getItem(`${SAVE_KEY_PREFIX}${slotId}`)
+      if (!raw) return null
+      const parsed: unknown = JSON.parse(raw)
+      const result = GameStateSchema.safeParse(parsed)
+      return result.success ? result.data : null
     } catch {
       return null
     }

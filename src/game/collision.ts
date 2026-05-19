@@ -11,6 +11,20 @@ import {
 } from './collision-constants'
 import { ASTEROID_SIZE_RADIUS } from './asteroid-model'
 
+/** Base impulse magnitude (units/sec) applied to an asteroid by a single projectile hit. */
+const PROJECTILE_IMPULSE = 6
+/** Impulse magnitude per unit damage from a sustained beam (units/sec per damage). */
+const BEAM_IMPULSE_PER_DAMAGE = 30
+
+/** Apply a small velocity nudge to an asteroid in the given direction. */
+function nudgeAsteroid(a: Asteroid, dirX: number, dirY: number, impulse: number): void {
+  // Bigger asteroids resist more. size 0 = moon (heaviest), size 3 = small.
+  const sizeFactor = 1 / (1 + (3 - a.size))
+  const k = impulse * sizeFactor
+  a.velocityX += dirX * k
+  a.velocityY += dirY * k
+}
+
 /**
  * Check if two circles overlap.
  */
@@ -84,7 +98,8 @@ export interface ProjectileHit {
 /**
  * Check all projectiles against all asteroids.
  * Returns hits and the surviving projectiles (those that didn't hit anything).
- * Mutates asteroid HP. Blaster projectiles deflect off crystalline asteroids
+ * Mutates asteroid HP and applies a small impact impulse along the projectile's
+ * velocity direction. Blaster projectiles deflect off crystalline asteroids
  * (no damage dealt, hit still reported with `deflected: true`).
  * Lazer projectiles deal bonus damage to all asteroid types.
  */
@@ -102,7 +117,11 @@ export function checkProjectileAsteroidCollisions(
       const aRadius = ASTEROID_SIZE_RADIUS[a.size] ?? ASTEROID_COLLISION_RADIUS
       if (circlesOverlap(p.x, p.y, PROJECTILE_RADIUS, a.x, a.y, aRadius)) {
         if (a.type === 'crystalline' && p.tool !== 'lazer') {
-          // Blaster can't damage crystalline — deflect
+          // Blaster can't damage crystalline — deflect (still nudges slightly)
+          const vmag = Math.hypot(p.velocityX, p.velocityY)
+          if (vmag > 0.001) {
+            nudgeAsteroid(a, p.velocityX / vmag, p.velocityY / vmag, PROJECTILE_IMPULSE * 0.3)
+          }
           hits.push({
             projectileId: p.id,
             asteroidId: a.id,
@@ -115,6 +134,10 @@ export function checkProjectileAsteroidCollisions(
           const effectiveDamage =
             p.tool === 'lazer' ? Math.ceil(p.damage * LAZER_DAMAGE_MULTIPLIER) : p.damage
           a.hp = Math.max(0, a.hp - effectiveDamage)
+          const vmag = Math.hypot(p.velocityX, p.velocityY)
+          if (vmag > 0.001) {
+            nudgeAsteroid(a, p.velocityX / vmag, p.velocityY / vmag, PROJECTILE_IMPULSE)
+          }
           hits.push({
             projectileId: p.id,
             asteroidId: a.id,
@@ -172,9 +195,31 @@ function pointToSegmentDistSq(
 }
 
 /**
+ * Return true if any live asteroid blocks the line segment from
+ * (x1,y1) to (x2,y2). Used for line-of-sight checks (auto-fire targeting,
+ * enemy shot suppression).
+ */
+export function segmentBlockedByAsteroid(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  asteroids: Asteroid[],
+): boolean {
+  for (const a of asteroids) {
+    if (a.hp <= 0) continue
+    const aRadius = ASTEROID_SIZE_RADIUS[a.size] ?? ASTEROID_COLLISION_RADIUS
+    const distSq = pointToSegmentDistSq(a.x, a.y, x1, y1, x2, y2)
+    if (distSq < aRadius * aRadius) return true
+  }
+  return false
+}
+
+/**
  * Check a beam (line segment) against all live asteroids.
  * Returns all asteroid hits along the beam and the hit point of the nearest one
- * (used for beam endpoint rendering).
+ * (used for beam endpoint rendering). Applies a stronger impulse to the
+ * nearest asteroid (it's absorbing the beam, not the ones further along).
  */
 export function checkBeamAsteroidCollisions(
   startX: number,
@@ -186,8 +231,12 @@ export function checkBeamAsteroidCollisions(
 ): { hits: BeamHit[]; beamEndX: number; beamEndY: number } {
   const hits: BeamHit[] = []
   let nearestT = 1.0
+  let nearestAsteroidId: string | null = null
   const dx = endX - startX
   const dy = endY - startY
+  const beamLen = Math.hypot(dx, dy)
+  const dirX = beamLen > 0.001 ? dx / beamLen : 0
+  const dirY = beamLen > 0.001 ? dy / beamLen : 0
 
   for (const a of asteroids) {
     if (a.hp <= 0) continue
@@ -202,9 +251,18 @@ export function checkBeamAsteroidCollisions(
       const lenSq = dx * dx + dy * dy
       if (lenSq > 0.0001) {
         const t = ((a.x - startX) * dx + (a.y - startY) * dy) / lenSq
-        if (t < nearestT) nearestT = Math.max(0, t)
+        if (t < nearestT) {
+          nearestT = Math.max(0, t)
+          nearestAsteroidId = a.id
+        }
       }
     }
+  }
+
+  // Push only the nearest asteroid — it's the one actually absorbing the beam.
+  if (nearestAsteroidId !== null && (dirX !== 0 || dirY !== 0)) {
+    const a = asteroids.find((x) => x.id === nearestAsteroidId)
+    if (a) nudgeAsteroid(a, dirX, dirY, damage * BEAM_IMPULSE_PER_DAMAGE)
   }
 
   return {

@@ -43,11 +43,6 @@ export const SaveSlotSummarySchema = z.object({
 })
 export type SaveSlotSummary = z.infer<typeof SaveSlotSummarySchema>
 
-export const FeedbackSchema = z.object({
-  message: z.string().min(1).max(2000),
-})
-export type Feedback = z.infer<typeof FeedbackSchema>
-
 export function defaultGameState(): GameState {
   return {
     ship: { x: 0, y: 0, rotation: 0, velocityX: 0, velocityY: 0 },

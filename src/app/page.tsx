@@ -4,7 +4,6 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { GameCanvas } from '@/components/GameCanvas'
 import type { GameCanvasHandle } from '@/components/GameCanvas'
 import { HUD } from '@/components/HUD'
-import { FeedbackFab } from '@/components/FeedbackFab'
 import { SoundFab } from '@/components/SoundFab'
 import { StartScreen } from '@/components/StartScreen'
 import { TutorialOverlay } from '@/components/TutorialOverlay'
@@ -15,6 +14,9 @@ import { ShopFab } from '@/components/ShopFab'
 import { useGameState } from '@/hooks/useGameState'
 import { useGamePersistence } from '@/hooks/useGamePersistence'
 import { useTutorial } from '@/hooks/useTutorial'
+import { playMenuLoop, enterGameplay, primeOnFirstGesture } from '@/lib/menu-music'
+import { useGamepadMenu } from '@/hooks/useGamepadMenu'
+import { useGamepadButton } from '@/hooks/useGamepadButton'
 import type { MiningTool } from '@/game/types'
 import type { Upgrades, SaveSlotId } from '@/lib/schemas'
 
@@ -71,10 +73,22 @@ export default function Home() {
     })
   }, [saveSeq]) // eslint-disable-line react-hooks/exhaustive-deps -- save reads latest state at trigger time
 
+  // --- Music ---
+  // Start the menu loop whenever the start screen is showing; arm a one-shot
+  // gesture listener so autoplay-blocked browsers still kick it off on the
+  // first click. The same audio element survives into gameplay.
+  useEffect(() => {
+    if (screen === 'start') {
+      playMenuLoop()
+      primeOnFirstGesture()
+    }
+  }, [screen])
+
   const handleNewGame = useCallback((slotId: SaveSlotId) => {
     localStorage.setItem(ACTIVE_SLOT_KEY, slotId)
     setActiveSlot(slotId)
     setIsNewGame(true)
+    enterGameplay()
     setScreen('game')
   }, [])
 
@@ -82,6 +96,7 @@ export default function Home() {
     localStorage.setItem(ACTIVE_SLOT_KEY, slotId)
     setActiveSlot(slotId)
     setIsNewGame(false)
+    enterGameplay()
     setScreen('game')
   }, [])
 
@@ -136,13 +151,17 @@ export default function Home() {
         if (type === 'blaster') {
           gameCanvasRef.current?.setFireRateBonus(1.1)
         }
+        if (type === 'collector') {
+          // upgrades.collector hasn't applied yet (setState scheduled); pass +1
+          gameCanvasRef.current?.setCollectorTier(upgrades.collector + 1)
+        }
         if (tutorial.active) {
           tutorial.onBoughtUpgrade()
         }
         requestSave()
       })
     },
-    [buyUpgrade, tutorial, requestSave],
+    [buyUpgrade, tutorial, requestSave, upgrades.collector],
   )
 
   const handleBuyLazer = useCallback(() => {
@@ -267,6 +286,29 @@ export default function Home() {
     }
   }, [tutorialActive, tutorialStep, upgrades.blaster, onBoughtUpgrade])
 
+  // --- In-game gamepad layer ---
+  // Walks DOM focus across overlay buttons (Trade Menu, Tutorial, Prologue,
+  // Lazer popup) when any of those are visible; A clicks focused item, B
+  // closes via [data-menu-back]. When no overlay is visible there are no
+  // [data-menu-item] elements in the DOM, so input is a silent no-op and
+  // doesn't fight the in-canvas gamepad handler in scene.ts (which uses left
+  // stick / right stick / RT only).
+  const inGameOverlayKey = paused
+    ? 'paused'
+    : lazerPopupVisible
+      ? 'lazer-popup'
+      : tradeMenuOpen
+        ? 'trade'
+        : tutorial.active
+          ? `tut:${tutorial.step}`
+          : ''
+  useGamepadMenu({
+    enabled: screen === 'game',
+    resetKey: inGameOverlayKey,
+  })
+  // Start button (Standard Gamepad button 9) toggles pause during gameplay.
+  useGamepadButton(9, togglePause, screen === 'game')
+
   // Freeze ship when the shop FAB is visible during the tutorial approach-station step.
   // Unfreezes when the player clicks the FAB (advancing to trade-sell, which hides the overlay).
   const shopTutorialFreeze =
@@ -359,7 +401,6 @@ export default function Home() {
           <p className="font-mono text-2xl sm:text-4xl tracking-widest text-white/80">PAUSED</p>
         </div>
       )}
-      {paused && <FeedbackFab />}
       {paused && <SoundFab />}
       {prologueFade !== 'none' && (
         <div

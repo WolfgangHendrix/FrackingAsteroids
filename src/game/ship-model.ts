@@ -70,7 +70,38 @@ export function createShipModel(variant: 'normal' | 'prologue' = 'normal'): THRE
   addVoxel(ship, 0, -3, -0.3, engine)
   addVoxel(ship, 1, -3, -0.3, engine)
 
+  // --- Turret (rotates independently to track the player's aim) ---
+  // Named 'turret' so scene.ts can grab it and set rotation.z each frame.
+  // Arrow shape pointing along local +Y at rest, so the player can read the
+  // aim direction at a glance.
+  ship.add(buildArrowTurret(VOXEL_SIZE))
+
   return ship
+}
+
+/**
+ * Build the aim-tracking turret. Arrow-shaped (shaft + 3-voxel arrowhead +
+ * point), sits on top of the hull, rotates about its base. Sized via the
+ * `voxelSize` argument so the prologue ship can use a larger version.
+ *
+ * Red palette so the aim indicator reads with combat urgency at a glance.
+ */
+function buildArrowTurret(voxelSize: number): THREE.Group {
+  const turret = new THREE.Group()
+  turret.name = 'turret'
+  const yoke = 0x661111 // dark red base
+  const blade = 0xff3333 // bright red shaft + arrowhead + point
+  // Pivot/yoke on top of the hull
+  addVoxelSized(turret, 0, 0, 1.0, yoke, voxelSize)
+  // Shaft just forward of the pivot
+  addVoxelSized(turret, 0, 1, 1.2, blade, voxelSize)
+  // Arrowhead (3 voxels wide)
+  addVoxelSized(turret, -1, 2, 1.2, blade, voxelSize)
+  addVoxelSized(turret, 0, 2, 1.2, blade, voxelSize)
+  addVoxelSized(turret, 1, 2, 1.2, blade, voxelSize)
+  // Arrow point
+  addVoxelSized(turret, 0, 3, 1.2, blade, voxelSize)
+  return turret
 }
 
 /**
@@ -81,7 +112,7 @@ function createPrologueShipModel(): THREE.Group {
   const ship = new THREE.Group()
   const v = PROLOGUE_VOXEL
   const { hull, cockpit, engine, wingTip } = SHIP_COLORS
-  const { gold, turret, scoop, cargo, lazerLens } = PROLOGUE_COLORS
+  const { gold, scoop, cargo, lazerLens } = PROLOGUE_COLORS
 
   // Main body — scaled up version of normal hull with gold accents
   let voxelCount = 0
@@ -115,16 +146,10 @@ function createPrologueShipModel(): THREE.Group {
 
   // --- Detachable modules ---
 
-  // Turrets: weapon pods on outer wing tips
-  const turrets = new THREE.Group()
-  turrets.name = 'turrets'
-  for (const side of [-1, 1]) {
-    const tx = side * 6
-    addVoxelSized(turrets, tx, -2, 0, turret, v)
-    addVoxelSized(turrets, tx, -1, 0, turret, v)
-    addVoxelSized(turrets, tx, -2, 0.8, turret, v)
-  }
-  ship.add(turrets)
+  // Turret: single arrow-shaped turret on top, tracks the player's aim.
+  // Larger voxel size to match the prologue scale. (Replaces the older
+  // twin-wing pods so the silhouette reads as a clear pointer at a glance.)
+  ship.add(buildArrowTurret(v))
 
   // Collector scoop: U-shape around front
   const scoopGroup = new THREE.Group()

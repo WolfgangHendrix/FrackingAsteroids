@@ -46,6 +46,13 @@ export { updateShip, aimToRotation } from './ship-controller'
 export { createVirtualJoystick } from './virtual-joystick'
 export type { VirtualJoystick } from './virtual-joystick'
 export {
+  createGamepadHandler,
+  createGamepadHandlerState,
+  readGamepadSnapshot,
+  applyGamepadFrame,
+} from './gamepad'
+export type { GamepadHandler, GamepadHandlerState, GamepadSnapshot } from './gamepad'
+export {
   SHIP_COLLISION_RADIUS,
   ASTEROID_COLLISION_RADIUS,
   COLLISION_PUSH_BUFFER,

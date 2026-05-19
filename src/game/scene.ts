@@ -3,7 +3,7 @@ import { createShipModel } from './ship-model'
 import { createAsteroidModel } from './asteroid-model'
 import { spawnAsteroidField, spawnPrologueField } from './asteroid-spawner'
 import { createArbiterModel } from './arbiter-model'
-import { PROLOGUE_ASTEROID_COUNT, PROLOGUE_MOON_COUNT } from './prologue-config'
+import { PROLOGUE_ASTEROID_COUNT, PROLOGUE_MOON_COUNT, PROLOGUE_SHIP } from './prologue-config'
 import {
   createGasStationModel,
   initGasStationNeon,
@@ -13,6 +13,7 @@ import { createProjectileModel } from './projectile-model'
 import { createLazerBeam, updateLazerBeam, disposeLazerBeam } from './lazer-beam'
 import { createInputState, createInputHandler, createAimState, createAimHandler } from './input'
 import { createVirtualJoystick } from './virtual-joystick'
+import { createGamepadHandler } from './gamepad'
 import { createFireButton, createCollectButton, createToolToggleButton } from './fire-button'
 import type { ToolToggleButton } from './fire-button'
 import { createRechargeMeter, updateRechargeMeter } from './recharge-meter'
@@ -28,7 +29,7 @@ import {
 import type { DebrisChunk } from './asteroid-debris'
 import { disposeMetalChunk } from './metal-chunk'
 import type { MiningTool } from './types'
-import { tick, createTickState, PLAYER_MAX_HP } from './game-tick'
+import { tick, createTickState, PLAYER_MAX_HP, collectorRangeForTier } from './game-tick'
 import type { TickState, TickInput } from './game-tick'
 import { createCollectorVfx, updateCollectorVfx, disposeCollectorVfx } from './collector-vfx'
 import {
@@ -38,14 +39,6 @@ import {
   playCollectPling,
   disposeAudio,
 } from './audio'
-import {
-  startMusic,
-  setMusicIntensity,
-  updateMusic,
-  suspendMusic,
-  resumeMusic,
-  disposeMusic,
-} from './music'
 import {
   playLaserFire,
   playExplosion,
@@ -136,6 +129,7 @@ export interface GameScene {
   setFireRateBonus: (multiplier: number) => void
   resetShipToStation: () => void
   setMiningTool: (tool: MiningTool) => void
+  setCollectorTier: (tier: number) => void
 }
 
 /**
@@ -346,6 +340,11 @@ export function createGameScene(
   const joystick = createVirtualJoystick(inputState, container)
   joystick.attach()
 
+  // --- Gamepad (XInput / Xbox 360 mapping) ---
+  // Left stick → movement, right stick → aim + fire, RT → toggle fire-lock.
+  const gamepad = createGamepadHandler(inputState, aimState, container)
+  gamepad.attach()
+
   // --- Screen-to-world coordinate conversion ---
   const raycaster = new THREE.Raycaster()
   const groundPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0)
@@ -373,7 +372,6 @@ export function createGameScene(
 
   function onMouseDown(e: MouseEvent): void {
     resumeAudio()
-    startMusic()
     startEngineSound()
     if (getPaused()) return
     if (e.button === 0) {
@@ -484,7 +482,6 @@ export function createGameScene(
   // doesn't synthesize mouse events that rotate the ship or break the joystick.
   function onTouchStartSwallow(e: TouchEvent): void {
     resumeAudio()
-    startMusic()
     startEngineSound()
     const rect = container.getBoundingClientRect()
     for (let i = 0; i < e.changedTouches.length; i++) {
@@ -531,6 +528,9 @@ export function createGameScene(
     // --- Build per-frame input for the shared tick function ---
     const paused = getPaused()
 
+    // --- Gamepad poll: writes to inputState/aimState, returns firing intent ---
+    const gamepadResult = gamepad.poll()
+
     // Compute world-space aim from screen-space aimState
     let aimWorldPosition: { x: number; y: number } | null = null
     if (aimState.active) {
@@ -551,6 +551,12 @@ export function createGameScene(
         x: ship.x + Math.cos(angle) * 100,
         y: ship.y + Math.sin(angle) * 100,
       }
+    }
+
+    // Gamepad fire (right stick past deadzone OR fire-lock engaged with last aim)
+    if (!paused && gamepadResult.firing && aimState.active) {
+      const w = screenToWorld(aimState.screenX, aimState.screenY)
+      tickState.fireTarget = { x: w.x, y: w.y }
     }
 
     // Always sync from DOM — tick's input cooldown handles stale events
@@ -579,11 +585,6 @@ export function createGameScene(
     mouseHoldingFire = tickState.mouseHoldingFire
 
     if (!paused) {
-      // Resume audio if we were just unpaused
-      if (wasPaused) {
-        resumeMusic()
-      }
-
       // --- Process tick result for rendering ---
 
       // Recharge meter (rendering-only)
@@ -832,7 +833,7 @@ export function createGameScene(
 
       // Strip modules during prologue-strip
       if (result.stripAdvanced) {
-        const moduleNames = ['turrets', 'scoop', 'cargoPods', 'lazerLens']
+        const moduleNames = ['turret', 'scoop', 'cargoPods', 'lazerLens']
         const phase = tickState.prologueStripPhase - 1
         if (phase >= 0 && phase < moduleNames.length) {
           const mod = shipModel.getObjectByName(moduleNames[phase])
@@ -891,8 +892,34 @@ export function createGameScene(
       }
 
       // --- Collector VFX & Audio ---
-      // During prologue, always show magnet collector animation
-      const collectingActive = collecting || tickState.prologueAutoCollect
+      // Collector VFX/hum: drive by "is any pickup within the active magnet
+      // range right now?" The magnet itself is always-on; this just keeps the
+      // visual swirl + audio quiet when there's nothing to pull.
+      const isPrologueStep = getTutorialStep().startsWith('prologue-')
+      const collectorRange = tickState.prologueShipFrozen
+        ? 0
+        : isPrologueStep
+          ? PROLOGUE_SHIP.collectorRange
+          : collectorRangeForTier(tickState.collectorTier)
+      const rangeSq = collectorRange * collectorRange
+      let anyInRange = false
+      if (collectorRange > 0) {
+        for (const m of tickState.metalChunks) {
+          if ((m.x - ship.x) ** 2 + (m.y - ship.y) ** 2 < rangeSq) {
+            anyInRange = true
+            break
+          }
+        }
+        if (!anyInRange) {
+          for (const s of tickState.scrapBoxes) {
+            if ((s.x - ship.x) ** 2 + (s.y - ship.y) ** 2 < rangeSq) {
+              anyInRange = true
+              break
+            }
+          }
+        }
+      }
+      const collectingActive = anyInRange || tickState.prologueAutoCollect
       updateCollectorVfx(collectorVfx, dt, collectingActive, ship.x, ship.y)
       if (collectingActive) {
         startCollectorHum()
@@ -902,13 +929,6 @@ export function createGameScene(
 
       // --- Update Gas Station Neon ---
       updateGasStationNeon(gasStation.neonMeshes, now / 1000)
-
-      // --- Music Intensity ---
-      const hasEnemies =
-        (tickState.enemy && tickState.enemy.alive) || tickState.ambushEnemies.some((ae) => ae.alive)
-      const hasCombat = hasEnemies || tickState.enemyProjectiles.length > 0
-      setMusicIntensity(hasCombat ? 0.8 : 0.15)
-      updateMusic(dt)
 
       // --- Engine Trail & Sound ---
       const shipSpeed = Math.sqrt(ship.velocityX * ship.velocityX + ship.velocityY * ship.velocityY)
@@ -968,6 +988,24 @@ export function createGameScene(
       shipModel.rotation.z = ship.rotation
       rechargeMeter.position.set(ship.x, ship.y, 0)
 
+      // --- Turret rotation — tracks the player's aim (mouse / right stick).
+      // Arrow barrel points in local +Y at rest; setting local rotation.z =
+      // (worldAimAngle - π/2) - ship.rotation puts the arrow on the aim ray.
+      // Falls back to "forward" (local 0) when no aim is active.
+      const turret = shipModel.getObjectByName('turret')
+      if (turret) {
+        if (aimWorldPosition) {
+          const tdx = aimWorldPosition.x - ship.x
+          const tdy = aimWorldPosition.y - ship.y
+          if (tdx * tdx + tdy * tdy > 0.25) {
+            const worldAim = Math.atan2(tdy, tdx)
+            turret.rotation.z = worldAim - Math.PI / 2 - ship.rotation
+          }
+        } else {
+          turret.rotation.z = 0
+        }
+      }
+
       // Camera follows ship
       const lerpFactor = 1 - Math.pow(1 - CAMERA_LERP, dt * 60)
       camera.position.x += (ship.x - camera.position.x) * lerpFactor
@@ -984,7 +1022,6 @@ export function createGameScene(
       // --- Paused: mute all looping audio ---
       if (!wasPaused) {
         wasPaused = true
-        suspendMusic()
         suspendEngineSound()
         stopCollectorHum()
       }
@@ -1000,6 +1037,7 @@ export function createGameScene(
     inputHandler.detach()
     aimHandler.detach()
     joystick.detach()
+    gamepad.detach()
     if (fireButton) fireButton.detach()
     if (collectButton) collectButton.detach()
     if (toolToggleButton) toolToggleButton.detach()
@@ -1065,7 +1103,6 @@ export function createGameScene(
     // Clean up collector VFX & audio
     disposeCollectorVfx(collectorVfx)
     disposeAudio()
-    disposeMusic()
     disposeSfx()
 
     // Clean up background effects & engine trail
@@ -1093,6 +1130,10 @@ export function createGameScene(
     toolToggleButton?.setTool(tool)
   }
 
+  function setCollectorTier(tier: number) {
+    tickState.collectorTier = Math.max(1, Math.min(5, Math.round(tier)))
+  }
+
   /** Reset ship to just north of station with full HP, swap to normal ship, clear prologue. */
   function resetShipToStation() {
     // Move ship to just north of the station (outside station range)
@@ -1107,6 +1148,7 @@ export function createGameScene(
 
     // Reset to tier-1 ship and clear prologue state
     tickState.blasterTier = 1
+    tickState.collectorTier = 1
     tickState.fireRateBonus = 1.0
     tickState.activeMiningTool = 'blaster'
     toolToggleButton?.setTool('blaster')
@@ -1218,5 +1260,5 @@ export function createGameScene(
     return hash
   }
 
-  return { dispose, setFireRateBonus, resetShipToStation, setMiningTool }
+  return { dispose, setFireRateBonus, resetShipToStation, setMiningTool, setCollectorTier }
 }

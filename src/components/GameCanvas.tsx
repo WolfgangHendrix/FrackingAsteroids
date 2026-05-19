@@ -9,6 +9,7 @@ export interface GameCanvasHandle {
   setFireRateBonus: (multiplier: number) => void
   resetShipToStation: () => void
   setMiningTool: (tool: MiningTool) => void
+  setCollectorTier: (tier: number) => void
 }
 
 interface GameCanvasProps {
@@ -98,6 +99,9 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
     },
     setMiningTool: (tool: MiningTool) => {
       sceneRef.current?.setMiningTool(tool)
+    },
+    setCollectorTier: (tier: number) => {
+      sceneRef.current?.setCollectorTier(tier)
     },
   }))
 
