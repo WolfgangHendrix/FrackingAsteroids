@@ -216,14 +216,11 @@ body {
   animation: twinkle 4s ease-in-out infinite;
 }
 
-.menu-asteroid {
+/* Drift track for the voxel asteroids — the SVG sits inside.            */
+/* Opacity holds the visuals back so they don't fight the menu chrome.    */
+.menu-asteroid-track {
   position: absolute;
-  border-radius: 42% 58% 55% 45% / 50% 45% 55% 50%;
-  background: radial-gradient(circle at 35% 30%, #6b5d4a 0%, #4a4030 60%, #2c2418 100%);
-  box-shadow:
-    inset -4px -6px 10px rgba(0, 0, 0, 0.55),
-    0 0 18px rgba(0, 0, 0, 0.4);
-  opacity: 0.55;
+  opacity: 0.7;
   animation: float-across linear infinite;
   will-change: transform;
 }
@@ -297,7 +294,7 @@ body {
   .menu-starfield-mid,
   .menu-starfield-near,
   .menu-star-twinkle,
-  .menu-asteroid,
+  .menu-asteroid-track,
   .menu-shooting-star,
   [data-menu-item]:focus::before,
   [data-menu-item]:focus-visible::before,

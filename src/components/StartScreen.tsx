@@ -1,9 +1,77 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { SAVE_SLOT_IDS, SaveSlotSummarySchema } from '@/lib/schemas'
 import type { SaveSlotId, SaveSlotSummary } from '@/lib/schemas'
 import { useGamepadMenu } from '@/hooks/useGamepadMenu'
+
+// In-game asteroid voxel palette (mirrors ASTEROID_COLORS in asteroid-model.ts)
+const ROCK_PALETTE = ['#8b7355', '#6b5340', '#a08868'] as const
+
+/**
+ * Voxel asteroid silhouette that matches the in-game style: a grid of small
+ * rectangles in the same rock palette as `createAsteroidModel`. Shape is
+ * deterministic per `seed` so SSR/client agree.
+ */
+function MenuAsteroidVoxels({ seed, sizePx }: { seed: number; sizePx: number }) {
+  const cells = useMemo(() => generateAsteroidCells(seed), [seed])
+  const grid = 10 // 10×10 voxel field
+  const voxel = 4 // SVG units per voxel
+  const viewBox = `0 0 ${grid * voxel} ${grid * voxel}`
+  return (
+    <svg
+      width={sizePx}
+      height={sizePx}
+      viewBox={viewBox}
+      aria-hidden="true"
+      style={{ filter: 'drop-shadow(0 0 6px rgba(0,0,0,0.5))' }}
+    >
+      {cells.map(([cx, cy, colorIdx], i) => (
+        <rect
+          key={i}
+          x={cx * voxel}
+          y={cy * voxel}
+          width={voxel}
+          height={voxel}
+          fill={ROCK_PALETTE[colorIdx]}
+        />
+      ))}
+    </svg>
+  )
+}
+
+function generateAsteroidCells(seed: number): [number, number, number][] {
+  // Tiny LCG seeded by `seed` so the shape is reproducible.
+  let s = seed >>> 0
+  const rand = (): number => {
+    s = (s * 16807) % 2147483647
+    return (s - 1) / 2147483646
+  }
+  const cells: [number, number, number][] = []
+  // Use Manhattan distance from center to get a chunky rock silhouette.
+  // Center the 10×10 grid around (4.5, 4.5).
+  for (let gx = 0; gx < 10; gx++) {
+    for (let gy = 0; gy < 10; gy++) {
+      const dx = gx - 4.5
+      const dy = gy - 4.5
+      const dist = Math.abs(dx) + Math.abs(dy)
+      // Core (always filled), edge band (probabilistic).
+      let filled = false
+      if (dist <= 3) filled = true
+      else if (dist <= 4.5) filled = rand() < 0.7
+      else if (dist <= 5.5) filled = rand() < 0.25
+      if (!filled) continue
+      // Color picking: tend dark on edges, light on highlights.
+      let colorIdx = 0 // rock (mid)
+      const r = rand()
+      if (dist > 3.5) colorIdx = r < 0.55 ? 1 : 0 // rockDark on edges
+      else if (r < 0.18) colorIdx = 2 // rockLight highlights
+      else if (r < 0.3) colorIdx = 1
+      cells.push([gx, gy, colorIdx])
+    }
+  }
+  return cells
+}
 
 const SLOTS_STORAGE_KEY = 'fracking-asteroids-slot-summaries'
 
@@ -169,27 +237,29 @@ export function StartScreen({ onNewGame, onLoadGame }: StartScreenProps) {
           ))}
         </div>
 
-        {/* Drifting asteroid silhouettes — sparse, behind everything */}
+        {/* Drifting voxel-asteroid silhouettes — sparse, behind everything.
+            Matches the in-game asteroid voxel style (palette + chunky grid). */}
         {Array.from({ length: 6 }, (_, i) => {
-          // Deterministic per index so SSR matches the client render.
-          const size = 40 + ((i * 17) % 50) // 40–90px
+          // Deterministic per index so SSR matches client render.
+          const size = 56 + ((i * 17) % 48) // 56–104px
           const top = `${(i * 23 + 5) % 85}%`
           const duration = 55 + ((i * 13) % 35) // 55–90s
           const delay = -((i * 11) % duration) // stagger so they're already on-screen
+          const seed = 17 + i * 101
           return (
             <div
               key={`asteroid-${i}`}
-              className="menu-asteroid"
+              className="menu-asteroid-track"
               aria-hidden="true"
               style={{
-                width: `${size}px`,
-                height: `${size}px`,
                 top,
                 left: 0,
                 animationDuration: `${duration}s`,
                 animationDelay: `${delay}s`,
               }}
-            />
+            >
+              <MenuAsteroidVoxels seed={seed} sizePx={size} />
+            </div>
           )
         })}
 
