@@ -87,7 +87,7 @@ function ArbiterDialogue({ onComplete }: { onComplete: () => void }) {
       ))}
       {!allRevealed && (
         <>
-          <p className="text-white/40 text-xs mt-2 animate-pulse">Tap to continue</p>
+          <p className="text-white/40 text-sm mt-2 animate-pulse">Tap to continue</p>
           {/* Invisible focusable target so gamepad A press advances dialogue. */}
           <button
             data-menu-item
@@ -183,7 +183,7 @@ export function PrologueOverlay({ step, onSkip, onDialogueComplete }: PrologueOv
           <button
             data-menu-item
             onClick={handleSkipClick}
-            className="pointer-events-auto text-white/30 hover:text-white/60 focus:text-white/90 focus:outline-none focus:ring-2 focus:ring-white/40 rounded text-xs font-mono transition-colors"
+            className="pointer-events-auto px-4 py-3 min-h-[44px] inline-flex items-center justify-center text-white/30 hover:text-white/60 focus:text-white/90 focus:outline-none focus:ring-2 focus:ring-white/40 rounded text-sm font-mono transition-colors"
             data-testid="prologue-skip"
           >
             SKIP INTRO
@@ -194,12 +194,12 @@ export function PrologueOverlay({ step, onSkip, onDialogueComplete }: PrologueOv
             className="flex flex-col items-center gap-2 pointer-events-auto"
             data-testid="prologue-skip-confirm"
           >
-            <p className="text-white/50 text-xs font-mono">Skip the intro?</p>
+            <p className="text-white/50 text-sm font-mono">Skip the intro?</p>
             <div className="flex gap-3">
               <button
                 data-menu-item
                 onClick={handleSkipClick}
-                className="px-3 py-1 text-hud-red text-xs font-mono border border-hud-red/40 rounded hover:bg-hud-red/20 focus:bg-hud-red/30 focus:outline-none focus:ring-2 focus:ring-hud-red transition-colors"
+                className="px-5 py-3 min-h-[44px] text-hud-red text-sm font-mono border border-hud-red/40 rounded hover:bg-hud-red/20 focus:bg-hud-red/30 focus:outline-none focus:ring-2 focus:ring-hud-red transition-colors"
                 data-testid="prologue-skip-yes"
               >
                 YES
@@ -208,7 +208,7 @@ export function PrologueOverlay({ step, onSkip, onDialogueComplete }: PrologueOv
                 data-menu-item
                 data-menu-back
                 onClick={handleCancelSkip}
-                className="px-3 py-1 text-white/50 text-xs font-mono border border-white/20 rounded hover:bg-white/10 focus:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/40 transition-colors"
+                className="px-5 py-3 min-h-[44px] text-white/50 text-sm font-mono border border-white/20 rounded hover:bg-white/10 focus:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/40 transition-colors"
                 data-testid="prologue-skip-no"
               >
                 NO

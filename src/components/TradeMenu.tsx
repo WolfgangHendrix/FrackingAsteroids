@@ -71,7 +71,7 @@ export function TradeMenu({
             data-menu-item
             data-menu-back
             onClick={onClose}
-            className="text-white/40 hover:text-white/80 focus:text-white focus:outline-none focus:ring-2 focus:ring-white/40 rounded text-xl transition-colors"
+            className="-mr-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-white/40 hover:text-white/80 focus:text-white focus:outline-none focus:ring-2 focus:ring-white/40 rounded text-2xl transition-colors"
           >
             X
           </button>
@@ -82,7 +82,7 @@ export function TradeMenu({
           <button
             data-menu-item
             onClick={() => !isTutorial && setManualTab('sell')}
-            className={`flex-1 py-2 text-sm font-bold tracking-wider transition-colors focus:outline-none focus:ring-2 focus:ring-hud-amber ${
+            className={`flex-1 py-3 min-h-[44px] text-base font-bold tracking-wider transition-colors focus:outline-none focus:ring-2 focus:ring-hud-amber ${
               activeTab === 'sell'
                 ? 'text-hud-amber bg-hud-amber/10 border-b-2 border-hud-amber'
                 : 'text-white/40 hover:text-white/60'
@@ -93,7 +93,7 @@ export function TradeMenu({
           <button
             data-menu-item
             onClick={() => !isTutorial && setManualTab('buy')}
-            className={`flex-1 py-2 text-sm font-bold tracking-wider transition-colors focus:outline-none focus:ring-2 focus:ring-hud-blue ${
+            className={`flex-1 py-3 min-h-[44px] text-base font-bold tracking-wider transition-colors focus:outline-none focus:ring-2 focus:ring-hud-blue ${
               activeTab === 'buy'
                 ? 'text-hud-blue bg-hud-blue/10 border-b-2 border-hud-blue'
                 : 'text-white/40 hover:text-white/60'
@@ -135,14 +135,14 @@ export function TradeMenu({
         {/* Tutorial hint */}
         {isTutorialSell && (
           <div className="px-5 pb-4">
-            <p className="text-hud-green text-xs animate-pulse text-center">
+            <p className="text-hud-green text-sm animate-pulse text-center">
               Sell your collected materials!
             </p>
           </div>
         )}
         {isTutorialBuy && (
           <div className="px-5 pb-4">
-            <p className="text-hud-green text-xs animate-pulse text-center">
+            <p className="text-hud-green text-sm animate-pulse text-center">
               Buy the Fire Rate upgrade!
             </p>
           </div>
@@ -171,7 +171,7 @@ function SellPanel({
 }) {
   return (
     <div className="flex flex-col gap-3">
-      <div className="text-white/60 text-xs mb-1">YOUR MATERIALS</div>
+      <div className="text-white/60 text-sm mb-1">YOUR MATERIALS</div>
       <div className="flex justify-between text-sm">
         <span style={{ color: '#c0c0c0' }}>Silver x{cargo.silver}</span>
         <span className="text-hud-amber">+{silverValue} scrap</span>
@@ -189,7 +189,7 @@ function SellPanel({
         data-menu-sound="sell"
         onClick={onSell}
         disabled={!hasMaterials}
-        className={`mt-2 w-full py-3 rounded font-bold text-sm tracking-wider transition-all focus:outline-none focus:ring-2 focus:ring-hud-amber ${
+        className={`mt-2 w-full py-3 min-h-[48px] rounded font-bold text-base tracking-wider transition-all focus:outline-none focus:ring-2 focus:ring-hud-amber ${
           hasMaterials
             ? isTutorial
               ? 'bg-hud-amber/30 border-2 border-hud-amber text-hud-amber animate-pulse hover:bg-hud-amber/50'
@@ -222,7 +222,7 @@ function BuyPanel({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="text-white/60 text-xs mb-1">UPGRADES</div>
+      <div className="text-white/60 text-sm mb-1">UPGRADES</div>
       {UPGRADE_CATALOG.map((item) => {
         const currentLevel = upgrades[item.type]
         const maxed = currentLevel >= 5
@@ -245,7 +245,7 @@ function BuyPanel({
               >
                 {item.label}
               </div>
-              <div className="text-xs text-white/40">
+              <div className="text-sm text-white/40">
                 {maxed ? 'MAX LEVEL' : item.description} — Mk{currentLevel}
               </div>
             </div>
@@ -254,7 +254,7 @@ function BuyPanel({
               data-menu-sound="buy"
               onClick={() => onBuy(item.type, item.cost)}
               disabled={!canAfford}
-              className={`ml-3 px-4 py-2 rounded text-xs font-bold tracking-wider transition-all focus:outline-none focus:ring-2 focus:ring-hud-blue ${
+              className={`ml-3 px-5 py-3 min-h-[44px] rounded text-sm font-bold tracking-wider transition-all focus:outline-none focus:ring-2 focus:ring-hud-blue ${
                 canAfford
                   ? highlight
                     ? 'bg-hud-green/30 border border-hud-green text-hud-green hover:bg-hud-green/50'
@@ -269,7 +269,7 @@ function BuyPanel({
       })}
 
       {/* Lazer mining tool */}
-      <div className="text-white/60 text-xs mb-1 mt-2">TOOLS</div>
+      <div className="text-white/60 text-sm mb-1 mt-2">TOOLS</div>
       <div
         className={`flex items-center justify-between p-3 rounded border ${
           hasLazer ? 'border-white/10 bg-white/5' : 'border-hud-blue/30 bg-hud-blue/5'
@@ -280,7 +280,7 @@ function BuyPanel({
           <div className={`text-sm font-bold ${hasLazer ? 'text-white/40' : 'text-hud-blue'}`}>
             Lazer
           </div>
-          <div className="text-xs text-white/40">
+          <div className="text-sm text-white/40">
             {hasLazer ? 'OWNED' : 'Mines crystalline asteroids, +50% damage to all'}
           </div>
         </div>
@@ -289,7 +289,7 @@ function BuyPanel({
           data-menu-sound="buy"
           onClick={onBuyLazer}
           disabled={!canAffordLazer}
-          className={`ml-3 px-4 py-2 rounded text-xs font-bold tracking-wider transition-all focus:outline-none focus:ring-2 focus:ring-hud-blue ${
+          className={`ml-3 px-5 py-3 min-h-[44px] rounded text-sm font-bold tracking-wider transition-all focus:outline-none focus:ring-2 focus:ring-hud-blue ${
             hasLazer
               ? 'bg-white/5 border border-white/10 text-white/20 cursor-not-allowed'
               : canAffordLazer

@@ -6,14 +6,6 @@ function getButtonSize(): number {
 }
 
 const BORDER_WIDTH = 3
-const BUTTON_GAP = 16
-
-export interface ActionButton {
-  attach: () => void
-  detach: () => void
-  /** Whether the button is currently held down. */
-  isPressed: () => boolean
-}
 
 interface ButtonStyle {
   r: number
@@ -22,131 +14,16 @@ interface ButtonStyle {
 }
 
 const STYLE_FIRE: ButtonStyle = { r: 255, g: 170, b: 0 }
-const STYLE_COLLECT: ButtonStyle = { r: 0, g: 170, b: 255 }
+const STYLE_LAZER: ButtonStyle = { r: 0, g: 204, b: 255 }
 
 function rgba(s: ButtonStyle, a: number): string {
   return `rgba(${s.r},${s.g},${s.b},${a})`
 }
 
-function createButtonOverlay(
-  container: HTMLElement,
-  style: ButtonStyle,
-  bottomOffset: string,
-  label: string,
-): {
-  button: HTMLElement
-  setPressed: (pressed: boolean) => void
-  destroy: () => void
-} {
-  const size = getButtonSize()
-  const rightMargin = Math.max(16, Math.round(size * 0.4))
-  const button = document.createElement('div')
-  button.setAttribute('aria-label', label)
-  button.setAttribute('role', 'button')
-  button.style.cssText =
-    `position:absolute;bottom:${bottomOffset};right:${rightMargin}px;width:${size}px;height:${size}px;` +
-    `border-radius:50%;border:${BORDER_WIDTH}px solid ${rgba(style, 0.6)};` +
-    `background:${rgba(style, 0.15)};z-index:10;touch-action:none;` +
-    `display:flex;align-items:center;justify-content:center;`
-
-  const innerSize = Math.round(size * 0.4)
-  const inner = document.createElement('div')
-  inner.style.cssText =
-    `width:${innerSize}px;height:${innerSize}px;` +
-    `border-radius:50%;background:${rgba(style, 0.4)};pointer-events:none;`
-
-  button.appendChild(inner)
-  container.appendChild(button)
-
-  return {
-    button,
-    setPressed(pressed: boolean) {
-      if (pressed) {
-        button.style.background = rgba(style, 0.4)
-        inner.style.background = rgba(style, 0.7)
-      } else {
-        button.style.background = rgba(style, 0.15)
-        inner.style.background = rgba(style, 0.4)
-      }
-    },
-    destroy() {
-      if (button.parentElement) button.parentElement.removeChild(button)
-    },
-  }
+/** Bottom offset for the corner tool button — clear of the twin-stick zones. */
+function getToolBottom(): string {
+  return window.innerHeight < 600 ? '20%' : '24%'
 }
-
-function createActionButton(
-  container: HTMLElement,
-  style: ButtonStyle,
-  bottomOffset: string,
-  label: string,
-  onPress: () => void,
-  onRelease?: () => void,
-): ActionButton {
-  const overlay = createButtonOverlay(container, style, bottomOffset, label)
-  let activeId: number | null = null
-
-  function onTouchStart(e: TouchEvent): void {
-    if (activeId !== null) return
-    for (let i = 0; i < e.changedTouches.length; i++) {
-      const touch = e.changedTouches[i]
-      activeId = touch.identifier
-      overlay.setPressed(true)
-      onPress()
-      e.preventDefault()
-      return
-    }
-  }
-
-  function onTouchEnd(e: TouchEvent): void {
-    if (activeId === null) return
-    for (let i = 0; i < e.changedTouches.length; i++) {
-      const touch = e.changedTouches[i]
-      if (touch.identifier === activeId) {
-        activeId = null
-        overlay.setPressed(false)
-        if (onRelease) onRelease()
-        return
-      }
-    }
-  }
-
-  return {
-    attach() {
-      overlay.button.addEventListener('touchstart', onTouchStart, { passive: false })
-      overlay.button.addEventListener('touchend', onTouchEnd)
-      overlay.button.addEventListener('touchcancel', onTouchEnd)
-    },
-    detach() {
-      overlay.button.removeEventListener('touchstart', onTouchStart)
-      overlay.button.removeEventListener('touchend', onTouchEnd)
-      overlay.button.removeEventListener('touchcancel', onTouchEnd)
-      activeId = null
-      overlay.destroy()
-    },
-    isPressed() {
-      return activeId !== null
-    },
-  }
-}
-
-function getFireBottom(): string {
-  return window.innerHeight < 600 ? '22%' : '28%'
-}
-
-function getCollectBottom(): string {
-  const size = getButtonSize()
-  const base = window.innerHeight < 600 ? '22%' : '28%'
-  return `calc(${base} + ${size + BUTTON_GAP}px)`
-}
-
-function getToolToggleBottom(): string {
-  const size = getButtonSize()
-  const base = window.innerHeight < 600 ? '22%' : '28%'
-  return `calc(${base} + ${(size + BUTTON_GAP) * 2}px)`
-}
-
-const STYLE_LAZER: ButtonStyle = { r: 0, g: 204, b: 255 }
 
 export interface ToolToggleButton {
   attach: () => void
@@ -155,35 +32,12 @@ export interface ToolToggleButton {
 }
 
 /**
- * Creates a visible fire button on the bottom-right of the screen for mobile.
- * Calls `onFire` on each touchstart.
- */
-export function createFireButton(container: HTMLElement, onFire: () => void): ActionButton {
-  return createActionButton(container, STYLE_FIRE, getFireBottom(), 'Fire', onFire)
-}
-
-/**
- * Creates a collect button above the fire button on the bottom-right.
- * The collector is active while the button is held down.
- */
-export function createCollectButton(
-  container: HTMLElement,
-  onPress: () => void,
-  onRelease: () => void,
-): ActionButton {
-  return createActionButton(
-    container,
-    STYLE_COLLECT,
-    getCollectBottom(),
-    'Collect',
-    onPress,
-    onRelease,
-  )
-}
-
-/**
- * Creates a tool toggle button above the collect button on mobile.
- * Tapping switches between blaster and lazer.
+ * Creates the mining-tool toggle button in the bottom-right corner. Tapping
+ * switches between blaster and lazer.
+ *
+ * It stops touch-event propagation so a tap here never also anchors the
+ * right-side aim joystick (which listens on the container for the whole
+ * right half of the screen).
  */
 export function createToolToggleButton(
   container: HTMLElement,
@@ -195,7 +49,7 @@ export function createToolToggleButton(
   button.setAttribute('aria-label', 'Switch mining tool')
   button.setAttribute('role', 'button')
   button.style.cssText =
-    `position:absolute;bottom:${getToolToggleBottom()};right:${rightMargin}px;` +
+    `position:absolute;bottom:${getToolBottom()};right:${rightMargin}px;` +
     `width:${size}px;height:${size}px;border-radius:50%;` +
     `border:${BORDER_WIDTH}px solid ${rgba(STYLE_FIRE, 0.6)};` +
     `background:${rgba(STYLE_FIRE, 0.15)};z-index:10;touch-action:none;` +
@@ -210,7 +64,7 @@ export function createToolToggleButton(
   button.appendChild(label)
   container.appendChild(button)
 
-  function updateStyle(tool: MiningTool) {
+  function updateStyle(tool: MiningTool): void {
     const style = tool === 'lazer' ? STYLE_LAZER : STYLE_FIRE
     button.style.borderColor = rgba(style, 0.6)
     button.style.background = rgba(style, 0.15)
@@ -218,8 +72,11 @@ export function createToolToggleButton(
     label.textContent = tool === 'lazer' ? 'LZR' : 'BLS'
   }
 
-  function onTouchStart(e: TouchEvent) {
+  function onTouchStart(e: TouchEvent): void {
+    // Stop the touch reaching the container so the aim joystick does not
+    // also anchor on this tap.
     e.preventDefault()
+    e.stopPropagation()
     onToggle()
   }
 

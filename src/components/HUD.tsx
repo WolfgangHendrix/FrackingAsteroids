@@ -60,13 +60,13 @@ function MiningToolLabel({ activeTool, hasLazer }: { activeTool: MiningTool; has
 
   return (
     <div
-      className="font-mono font-bold text-[clamp(0.5rem,1.5vw,0.75rem)]"
+      className="font-mono font-bold text-[clamp(0.75rem,2vw,0.875rem)]"
       style={{ color: toolColor }}
       data-testid="mining-tool-label"
     >
       {toolLabel}
       {!isMobile && hasLazer && (
-        <span className="ml-1 text-white/40 font-normal text-[clamp(0.4rem,1.2vw,0.625rem)]">
+        <span className="ml-1 text-white/40 font-normal text-[clamp(0.625rem,1.6vw,0.75rem)]">
           [Q]
         </span>
       )}
@@ -95,12 +95,12 @@ export function HUD({
       {/* Top bar: flex row with resources left, upgrades+pause right */}
       <div className="absolute top-0 left-0 right-0 flex items-start justify-between p-2 sm:p-3 md:p-4 gap-2 sm:gap-4">
         {/* Left: Resources */}
-        <div className="flex flex-col gap-1 sm:gap-2 text-[clamp(0.625rem,2vw,0.875rem)] min-w-0">
+        <div className="flex flex-col gap-1 sm:gap-2 text-[clamp(0.8125rem,2.4vw,1rem)] min-w-0">
           <div className="text-hud-amber font-mono font-bold truncate">SCRAP: {scrap}</div>
           <div className="text-hud-blue font-mono truncate">
             CARGO: {cargo.fragments}/{cargo.capacity} ({cargoPercent}%)
           </div>
-          <div className="flex items-center gap-2 sm:gap-3 font-mono text-[clamp(0.5rem,1.5vw,0.8125rem)]">
+          <div className="flex items-center gap-2 sm:gap-3 font-mono text-[clamp(0.75rem,2vw,0.9375rem)]">
             <span className="flex items-center gap-1" style={{ color: '#c0c0c0' }}>
               <SilverIcon size={14} />
               {cargo.silver}
@@ -113,7 +113,7 @@ export function HUD({
           {showHealth && (
             <div className="flex flex-col gap-1">
               <div
-                className="font-mono text-[clamp(0.5rem,1.5vw,0.75rem)]"
+                className="font-mono text-[clamp(0.75rem,2vw,0.875rem)]"
                 style={{ color: hpColor }}
               >
                 HULL: {hpPercent}%
@@ -134,7 +134,7 @@ export function HUD({
 
         {/* Right: Upgrades + Pause */}
         <div className="flex items-start gap-2 sm:gap-4 shrink-0">
-          <div className="flex flex-col gap-0.5 sm:gap-1 text-[clamp(0.5rem,1.8vw,0.8125rem)] font-mono text-right">
+          <div className="flex flex-col gap-0.5 sm:gap-1 text-[clamp(0.75rem,2.2vw,0.9375rem)] font-mono text-right">
             <div className="text-hud-red">BLASTER Mk{upgrades.blaster}</div>
             <div className="text-hud-green">COLLECTOR Mk{upgrades.collector}</div>
             <div className="text-hud-blue">STORAGE Mk{upgrades.storage}</div>

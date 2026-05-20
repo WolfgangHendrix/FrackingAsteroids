@@ -201,10 +201,10 @@ export function TutorialOverlay({
       {/* Top-center prompt panel — sits below the HUD, clear of mobile controls at the bottom */}
       <div className="absolute top-24 sm:top-28 left-1/2 -translate-x-1/2 w-auto max-w-[80vw] sm:max-w-sm px-4 sm:px-6 py-3 sm:py-4 bg-space-800/90 border border-hud-green/40 rounded-lg font-mono text-center">
         <StepDots step={step} />
-        <p className="text-hud-green text-xs sm:text-sm md:text-base">{text}</p>
+        <p className="text-hud-green text-sm sm:text-base">{text}</p>
         {frozen && (
           <>
-            <p className="text-white/50 text-xs mt-2 animate-pulse">
+            <p className="text-white/50 text-sm mt-2 animate-pulse">
               {gamepadActive ? 'Press (A) to continue' : 'Press any key to continue'}
             </p>
             {/* Invisible focusable target so gamepad A press fires onDismiss. */}
@@ -220,7 +220,7 @@ export function TutorialOverlay({
           <button
             data-menu-item
             onClick={handleSkipClick}
-            className="pointer-events-auto mt-3 text-white/40 hover:text-white/70 focus:text-white focus:outline-none focus:ring-2 focus:ring-white/40 rounded text-xs transition-colors"
+            className="pointer-events-auto mt-3 px-4 py-3 min-h-[44px] inline-flex items-center justify-center text-white/40 hover:text-white/70 focus:text-white focus:outline-none focus:ring-2 focus:ring-white/40 rounded text-sm transition-colors"
             data-testid="tutorial-skip"
           >
             SKIP
@@ -231,12 +231,12 @@ export function TutorialOverlay({
             className="mt-3 flex flex-col items-center gap-2"
             data-testid="tutorial-skip-confirm"
           >
-            <p className="text-white/60 text-xs">Skip the tutorial?</p>
+            <p className="text-white/60 text-sm">Skip the tutorial?</p>
             <div className="flex gap-3">
               <button
                 data-menu-item
                 onClick={handleSkipClick}
-                className="pointer-events-auto px-3 py-1 text-hud-red text-xs border border-hud-red/40 rounded hover:bg-hud-red/20 focus:bg-hud-red/30 focus:outline-none focus:ring-2 focus:ring-hud-red transition-colors"
+                className="pointer-events-auto px-5 py-3 min-h-[44px] text-hud-red text-sm border border-hud-red/40 rounded hover:bg-hud-red/20 focus:bg-hud-red/30 focus:outline-none focus:ring-2 focus:ring-hud-red transition-colors"
                 data-testid="tutorial-skip-yes"
               >
                 YES
@@ -245,7 +245,7 @@ export function TutorialOverlay({
                 data-menu-item
                 data-menu-back
                 onClick={handleCancelSkip}
-                className="pointer-events-auto px-3 py-1 text-white/50 text-xs border border-white/20 rounded hover:bg-white/10 focus:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/40 transition-colors"
+                className="pointer-events-auto px-5 py-3 min-h-[44px] text-white/50 text-sm border border-white/20 rounded hover:bg-white/10 focus:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/40 transition-colors"
                 data-testid="tutorial-skip-no"
               >
                 NO

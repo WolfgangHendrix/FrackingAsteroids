@@ -321,7 +321,7 @@ export function StartScreen({ onNewGame, onLoadGame }: StartScreenProps) {
                 key={slotId}
                 data-menu-item
                 onClick={() => handleNewGameSlot(slotId)}
-                className="px-6 py-3 bg-space-800/80 border border-hud-green/30 rounded font-mono text-sm hover:bg-space-700/80 hover:border-hud-green/60 focus:bg-space-700/80 focus:border-hud-green focus:outline-none focus:ring-2 focus:ring-hud-green active:scale-[0.98] transition-all text-left"
+                className="px-6 py-3.5 min-h-[52px] bg-space-800/80 border border-hud-green/30 rounded font-mono text-base hover:bg-space-700/80 hover:border-hud-green/60 focus:bg-space-700/80 focus:border-hud-green focus:outline-none focus:ring-2 focus:ring-hud-green active:scale-[0.98] transition-all text-left"
               >
                 <SlotLabel index={i} />
                 {summary ? (
@@ -336,7 +336,7 @@ export function StartScreen({ onNewGame, onLoadGame }: StartScreenProps) {
             data-menu-item
             data-menu-back
             onClick={handleBack}
-            className="mt-2 px-6 py-2 text-white/40 font-mono text-sm hover:text-white/70 focus:text-white focus:outline-none focus:ring-2 focus:ring-white/40 rounded transition-colors"
+            className="mt-2 px-6 py-3 min-h-[44px] text-white/40 font-mono text-base hover:text-white/70 focus:text-white focus:outline-none focus:ring-2 focus:ring-white/40 rounded transition-colors"
           >
             BACK
           </button>
@@ -355,7 +355,7 @@ export function StartScreen({ onNewGame, onLoadGame }: StartScreenProps) {
             <button
               data-menu-item
               onClick={handleConfirmOverwrite}
-              className="px-6 py-3 bg-space-800/80 border border-hud-red/50 rounded text-hud-red font-mono text-sm hover:bg-space-700/80 hover:border-hud-red focus:bg-space-700/80 focus:border-hud-red focus:outline-none focus:ring-2 focus:ring-hud-red active:scale-95 transition-all"
+              className="px-6 py-3.5 min-h-[48px] bg-space-800/80 border border-hud-red/50 rounded text-hud-red font-mono text-base hover:bg-space-700/80 hover:border-hud-red focus:bg-space-700/80 focus:border-hud-red focus:outline-none focus:ring-2 focus:ring-hud-red active:scale-95 transition-all"
             >
               OVERWRITE
             </button>
@@ -363,7 +363,7 @@ export function StartScreen({ onNewGame, onLoadGame }: StartScreenProps) {
               data-menu-item
               data-menu-back
               onClick={() => setConfirmSlot(null)}
-              className="px-6 py-3 bg-space-800/80 border border-white/20 rounded text-white/60 font-mono text-sm hover:bg-space-700/80 hover:text-white/80 focus:bg-space-700/80 focus:text-white focus:outline-none focus:ring-2 focus:ring-white/40 active:scale-95 transition-all"
+              className="px-6 py-3.5 min-h-[48px] bg-space-800/80 border border-white/20 rounded text-white/60 font-mono text-base hover:bg-space-700/80 hover:text-white/80 focus:bg-space-700/80 focus:text-white focus:outline-none focus:ring-2 focus:ring-white/40 active:scale-95 transition-all"
             >
               CANCEL
             </button>
@@ -384,7 +384,7 @@ export function StartScreen({ onNewGame, onLoadGame }: StartScreenProps) {
                 data-menu-item
                 onClick={() => !isEmpty && onLoadGame(slotId)}
                 disabled={isEmpty}
-                className="px-6 py-3 bg-space-800/80 border border-hud-blue/30 rounded font-mono text-sm hover:bg-space-700/80 hover:border-hud-blue/60 focus:bg-space-700/80 focus:border-hud-blue focus:outline-none focus:ring-2 focus:ring-hud-blue active:scale-[0.98] transition-all text-left disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-space-800/80 disabled:hover:border-hud-blue/30"
+                className="px-6 py-3.5 min-h-[52px] bg-space-800/80 border border-hud-blue/30 rounded font-mono text-base hover:bg-space-700/80 hover:border-hud-blue/60 focus:bg-space-700/80 focus:border-hud-blue focus:outline-none focus:ring-2 focus:ring-hud-blue active:scale-[0.98] transition-all text-left disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-space-800/80 disabled:hover:border-hud-blue/30"
               >
                 <SlotLabel index={i} />
                 {summary ? (
@@ -399,7 +399,7 @@ export function StartScreen({ onNewGame, onLoadGame }: StartScreenProps) {
             data-menu-item
             data-menu-back
             onClick={handleBack}
-            className="mt-2 px-6 py-2 text-white/40 font-mono text-sm hover:text-white/70 focus:text-white focus:outline-none focus:ring-2 focus:ring-white/40 rounded transition-colors"
+            className="mt-2 px-6 py-3 min-h-[44px] text-white/40 font-mono text-base hover:text-white/70 focus:text-white focus:outline-none focus:ring-2 focus:ring-white/40 rounded transition-colors"
           >
             BACK
           </button>

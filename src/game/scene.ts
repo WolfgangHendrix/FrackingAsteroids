@@ -17,9 +17,9 @@ import {
 import { createProjectileModel } from './projectile-model'
 import { createLazerBeam, updateLazerBeam, disposeLazerBeam } from './lazer-beam'
 import { createInputState, createInputHandler, createAimState, createAimHandler } from './input'
-import { createVirtualJoystick } from './virtual-joystick'
+import { createVirtualJoystick, createAimJoystick } from './virtual-joystick'
 import { createGamepadHandler } from './gamepad'
-import { createFireButton, createCollectButton, createToolToggleButton } from './fire-button'
+import { createToolToggleButton } from './fire-button'
 import type { ToolToggleButton } from './fire-button'
 import { createRechargeMeter, updateRechargeMeter } from './recharge-meter'
 import { createExplosion, updateExplosion, disposeExplosion } from './explosion'
@@ -349,9 +349,13 @@ export function createGameScene(
   const aimHandler = createAimHandler(aimState, container)
   aimHandler.attach()
 
-  // --- Virtual Joystick (mobile touch movement) ---
+  // --- Virtual Joystick (mobile touch movement — left side) ---
   const joystick = createVirtualJoystick(inputState, container)
   joystick.attach()
+
+  // --- Aim Joystick (mobile twin-stick aim + fire — right side) ---
+  const aimJoystick = createAimJoystick(aimState, container)
+  aimJoystick.attach()
 
   // --- Gamepad (XInput / Xbox 360 mapping) ---
   // Left stick → movement, right stick → aim + fire, RT → toggle fire-lock.
@@ -406,7 +410,7 @@ export function createGameScene(
       mouseHoldingFire = false
     } else if (e.button === 2) {
       mouseCollecting = false
-      if (!collectKeyDown && (fireButton === null || !fireButton.isPressed())) collecting = false
+      if (!collectKeyDown) collecting = false
     }
   }
 
@@ -417,30 +421,6 @@ export function createGameScene(
   renderer.domElement.addEventListener('mousedown', onMouseDown)
   renderer.domElement.addEventListener('mouseup', onMouseUp)
   renderer.domElement.addEventListener('contextmenu', onContextMenu)
-
-  // --- Mobile Fire & Collect Buttons (touch devices only) ---
-  let fireButton: ReturnType<typeof createFireButton> | null = null
-  let collectButton: ReturnType<typeof createCollectButton> | null = null
-
-  if (hasTouch) {
-    fireButton = createFireButton(container, () => {
-      if (getPaused()) return
-      const angle = ship.rotation + Math.PI / 2
-      fireTarget = { x: ship.x + Math.cos(angle) * 100, y: ship.y + Math.sin(angle) * 100 }
-    })
-    fireButton.attach()
-
-    collectButton = createCollectButton(
-      container,
-      () => {
-        collecting = true
-      },
-      () => {
-        if (!collectKeyDown && !mouseCollecting) collecting = false
-      },
-    )
-    collectButton.attach()
-  }
 
   // --- Tool Toggle (keyboard Q + mobile button) ---
   let toolToggleButton: ToolToggleButton | null = null
@@ -484,8 +464,7 @@ export function createGameScene(
   function onCollectKeyUp(e: KeyboardEvent): void {
     if (e.code === 'KeyE' || e.code === 'Space') {
       collectKeyDown = false
-      if (!mouseCollecting && (collectButton === null || !collectButton.isPressed()))
-        collecting = false
+      if (!mouseCollecting) collecting = false
     }
   }
   window.addEventListener('keydown', onCollectKeyDown)
@@ -544,6 +523,9 @@ export function createGameScene(
     // --- Gamepad poll: writes to inputState/aimState, returns firing intent ---
     const gamepadResult = gamepad.poll()
 
+    // --- Aim joystick poll: writes to aimState, returns firing intent ---
+    const aimJoystickResult = aimJoystick.poll()
+
     // Compute world-space aim from screen-space aimState
     let aimWorldPosition: { x: number; y: number } | null = null
     if (aimState.active) {
@@ -557,17 +539,14 @@ export function createGameScene(
       fireTarget = null
     }
 
-    // Mobile fire button
-    if (!paused && fireButton && fireButton.isPressed()) {
-      const angle = ship.rotation + Math.PI / 2
-      tickState.fireTarget = {
-        x: ship.x + Math.cos(angle) * 100,
-        y: ship.y + Math.sin(angle) * 100,
-      }
-    }
-
     // Gamepad fire (right stick past deadzone OR fire-lock engaged with last aim)
     if (!paused && gamepadResult.firing && aimState.active) {
+      const w = screenToWorld(aimState.screenX, aimState.screenY)
+      tickState.fireTarget = { x: w.x, y: w.y }
+    }
+
+    // Touch twin-stick fire (right-side aim joystick)
+    if (!paused && aimJoystickResult.firing && aimState.active) {
       const w = screenToWorld(aimState.screenX, aimState.screenY)
       tickState.fireTarget = { x: w.x, y: w.y }
     }
@@ -1094,9 +1073,8 @@ export function createGameScene(
     inputHandler.detach()
     aimHandler.detach()
     joystick.detach()
+    aimJoystick.detach()
     gamepad.detach()
-    if (fireButton) fireButton.detach()
-    if (collectButton) collectButton.detach()
     if (toolToggleButton) toolToggleButton.detach()
     renderer.domElement.removeEventListener('mousedown', onMouseDown)
     renderer.domElement.removeEventListener('mouseup', onMouseUp)

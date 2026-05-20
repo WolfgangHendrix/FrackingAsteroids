@@ -55,14 +55,14 @@ export function LazerTutorialPopup({ visible, onDismiss }: LazerTutorialPopupPro
           &#x26A0;
         </div>
         <p className="text-hud-blue text-sm sm:text-base font-bold mb-2">CRYSTALLINE ASTEROID</p>
-        <p className="text-white/70 text-xs sm:text-sm leading-relaxed">
+        <p className="text-white/70 text-sm sm:text-base leading-relaxed">
           This asteroid is too hard for your blaster! You need a{' '}
           <span className="text-hud-blue font-bold">Lazer</span> to mine it.
         </p>
         <p className="text-white/70 text-xs sm:text-sm leading-relaxed mt-1">
           Visit the <span className="text-hud-green font-bold">Trade Station</span> to purchase one.
         </p>
-        <p className="text-white/40 text-xs mt-4 animate-pulse">Tap anywhere to continue</p>
+        <p className="text-white/40 text-sm mt-4 animate-pulse">Tap anywhere to continue</p>
       </button>
     </div>
   )

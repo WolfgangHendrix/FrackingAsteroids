@@ -38,7 +38,7 @@ export function SoundFab() {
         <span className="text-hud-blue font-mono text-sm font-bold">Sound</span>
         <button
           onClick={() => setOpen(false)}
-          className="text-gray-400 hover:text-white text-lg leading-none transition-colors"
+          className="-mr-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-white text-2xl leading-none transition-colors"
           aria-label="Close sound settings"
         >
           x
@@ -47,8 +47,8 @@ export function SoundFab() {
 
       <label className="flex flex-col gap-1.5 mb-4">
         <div className="flex justify-between">
-          <span className="text-white font-mono text-xs">SFX</span>
-          <span className="text-gray-400 font-mono text-xs">{sfxVol}%</span>
+          <span className="text-white font-mono text-sm">SFX</span>
+          <span className="text-gray-400 font-mono text-sm">{sfxVol}%</span>
         </div>
         <input
           type="range"
@@ -56,14 +56,14 @@ export function SoundFab() {
           max={100}
           value={sfxVol}
           onChange={handleSfxChange}
-          className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-hud-blue bg-space-700"
+          className="w-full h-6 rounded-full appearance-none cursor-pointer accent-hud-blue bg-space-700"
         />
       </label>
 
       <label className="flex flex-col gap-1.5">
         <div className="flex justify-between">
-          <span className="text-white font-mono text-xs">Music</span>
-          <span className="text-gray-400 font-mono text-xs">{musicVol}%</span>
+          <span className="text-white font-mono text-sm">Music</span>
+          <span className="text-gray-400 font-mono text-sm">{musicVol}%</span>
         </div>
         <input
           type="range"
@@ -71,7 +71,7 @@ export function SoundFab() {
           max={100}
           value={musicVol}
           onChange={handleMusicChange}
-          className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-hud-blue bg-space-700"
+          className="w-full h-6 rounded-full appearance-none cursor-pointer accent-hud-blue bg-space-700"
         />
       </label>
     </div>
