@@ -38,7 +38,8 @@ import { disposeMetalChunk } from './metal-chunk'
 import type { MiningTool } from './types'
 import { tick, createTickState, PLAYER_MAX_HP, collectorRangeForTier } from './game-tick'
 import type { TickState, TickInput } from './game-tick'
-import { FIRST_PATROL_DELAY, ASTEROID_REPLENISH_INTERVAL } from './ledger-config'
+import { FIRST_PATROL_DELAY, ASTEROID_REPLENISH_INTERVAL, computeScore } from './ledger-config'
+import type { RunStats } from './ledger-config'
 import type { ArbiterHudInfo } from './arbiter-comms'
 import { createCollectorVfx, updateCollectorVfx, disposeCollectorVfx } from './collector-vfx'
 import {
@@ -137,6 +138,8 @@ export interface GameSceneOptions {
   onArbiterChanged?: (info: ArbiterHudInfo | null) => void
   /** Endless mode — Arbiter encounter lifecycle events for comms banners. */
   onArbiterEvent?: (event: { type: 'arrives' | 'defeated' | 'withdrawn'; mark: number }) => void
+  /** Endless mode — fired once when the player's hull is lost. */
+  onRunEnded?: (stats: RunStats) => void
   // Prologue callbacks
   onPrologueReady?: () => void
   onFieldCleared?: () => void
@@ -150,6 +153,7 @@ export interface GameScene {
   resetShipToStation: () => void
   setMiningTool: (tool: MiningTool) => void
   setCollectorTier: (tier: number) => void
+  respawnAfterDeath: () => void
 }
 
 /**
@@ -180,6 +184,7 @@ export function createGameScene(
   const onLedgerChanged = options?.onLedgerChanged
   const onArbiterChanged = options?.onArbiterChanged
   const onArbiterEvent = options?.onArbiterEvent
+  const onRunEnded = options?.onRunEnded
   const onPrologueReady = options?.onPrologueReady
   const onFieldCleared = options?.onFieldCleared
   const onArbiterArrived = options?.onArbiterArrived
@@ -923,6 +928,16 @@ export function createGameScene(
         onArbiterEvent?.({ type: 'withdrawn', mark: result.arbiterWithdrawn.mark })
       }
 
+      // --- Run ended — hull lost ---
+      if (result.playerKilled) {
+        onRunEnded?.({
+          marksDefeated: tickState.marksDefeated,
+          peakLedger: Math.round(tickState.peakLedger),
+          runTime: tickState.runTime,
+          score: computeScore(tickState.peakLedger, tickState.marksDefeated),
+        })
+      }
+
       // --- Arbiter HUD sync (only when Mark / hull / phase changes) ---
       const arb = tickState.arbiter
       const arbiterKey = arb ? `${arb.mark}:${Math.ceil(arb.hp)}:${arb.phase}` : 'none'
@@ -1429,6 +1444,120 @@ export function createGameScene(
     camera.position.y = ship.y
   }
 
+  /**
+   * Soft-fail respawn after the hull is lost: tow the ship home, restore full
+   * hull, wipe every hostile and the Ledger, and lay down a fresh asteroid
+   * field — but keep the player's upgrades. The summary screen handles the
+   * cargo wipe and high-score on the React side.
+   */
+  function respawnAfterDeath() {
+    ship.x = GAS_STATION_X
+    ship.y = GAS_STATION_Y + STATION_ENTER_DISTANCE - 10
+    ship.velocityX = 0
+    ship.velocityY = 0
+    tickState.playerHp = PLAYER_MAX_HP
+    onPlayerDamage?.(tickState.playerHp)
+
+    // Drop the Arbiter
+    tickState.arbiter = null
+    tickState.arbiterMark = 0
+
+    // Remove all enemies
+    for (const ae of tickState.ambushEnemies) {
+      scene.remove(ae.mesh)
+      disposeEnemyShip(ae)
+    }
+    tickState.ambushEnemies.length = 0
+    if (tickState.enemy) {
+      scene.remove(tickState.enemy.mesh)
+      disposeEnemyShip(tickState.enemy)
+      tickState.enemy = null
+    }
+
+    // Remove enemy projectiles
+    for (const ep of tickState.enemyProjectiles) {
+      scene.remove(ep.mesh)
+      disposeEnemyProjectile(ep)
+    }
+    tickState.enemyProjectiles.length = 0
+
+    // Remove player projectiles
+    for (const [, model] of projectileModels) {
+      scene.remove(model)
+      model.traverse(disposeMesh)
+    }
+    projectileModels.clear()
+    tickState.projectiles = []
+    tickState.projectileElapsed.clear()
+
+    // Remove metal chunks & scrap boxes
+    for (const m of tickState.metalChunks) {
+      scene.remove(m.mesh)
+      disposeMetalChunk(m)
+    }
+    tickState.metalChunks.length = 0
+    for (const sb of tickState.scrapBoxes) {
+      scene.remove(sb.mesh)
+      disposeScrapBox(sb)
+    }
+    tickState.scrapBoxes.length = 0
+
+    // Clear explosions & shipwreck debris
+    for (const e of explosions) {
+      scene.remove(e.group)
+      disposeExplosion(e)
+    }
+    explosions.length = 0
+    for (const wd of shipwreckDebrisList) {
+      scene.remove(wd.group)
+      disposeShipwreckDebris(wd)
+    }
+    shipwreckDebrisList.length = 0
+
+    // Respawn a fresh asteroid field around the station
+    for (const [, entry] of asteroidModels) {
+      scene.remove(entry.model)
+      entry.model.traverse(disposeMesh)
+    }
+    asteroidModels.clear()
+    tickState.asteroidHitCounts.clear()
+    asteroids.length = 0
+    for (const a of spawnAsteroidField(GAS_STATION_X, GAS_STATION_Y)) {
+      asteroids.push(a)
+      const model = createAsteroidModel(a.type, a.size, hashString(a.id))
+      model.position.set(a.x, a.y, 0)
+      scene.add(model)
+      const hm = createHealthMeter()
+      model.add(hm)
+      asteroidModels.set(a.id, { model, healthMeter: hm })
+      tickState.asteroidHitCounts.set(a.id, 0)
+    }
+
+    // Reset endless state for a fresh run
+    tickState.ledger = 0
+    tickState.patrolTimer = FIRST_PATROL_DELAY
+    tickState.asteroidRespawnTimer = ASTEROID_REPLENISH_INTERVAL
+    tickState.asteroidSpawnCounter = 1
+    tickState.peakLedger = 0
+    tickState.marksDefeated = 0
+    tickState.runTime = 0
+    tickState.endlessDeathFired = false
+    tickState.nearStationFired = false
+    tickState.wasInStationRange = false
+    tickState.repairedThisVisit = false
+    prevLedgerInt = -1
+    prevArbiterKey = ''
+    prevTractorActive = false
+    onLedgerChanged?.(0)
+    onArbiterChanged?.(null)
+
+    // Sync visuals & snap the camera home
+    shipModel.position.set(ship.x, ship.y, 0)
+    rechargeMeter.position.set(ship.x, ship.y, 0)
+    camera.position.x = ship.x
+    camera.position.y = ship.y
+  }
+
   /** Simple string hash for deterministic asteroid shape seeds. */
   function hashString(str: string): number {
     let hash = 5381
@@ -1438,5 +1567,12 @@ export function createGameScene(
     return hash
   }
 
-  return { dispose, setFireRateBonus, resetShipToStation, setMiningTool, setCollectorTier }
+  return {
+    dispose,
+    setFireRateBonus,
+    resetShipToStation,
+    setMiningTool,
+    setCollectorTier,
+    respawnAfterDeath,
+  }
 }

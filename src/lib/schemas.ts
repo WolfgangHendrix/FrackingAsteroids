@@ -30,6 +30,9 @@ export const GameStateSchema = z.object({
   upgrades: UpgradesSchema,
   cargo: CargoSchema,
   hp: z.number().int().min(0).max(100),
+  // Best endless-run score for this slot. Optional/defaulted so saves
+  // written before endless mode still load cleanly.
+  highScore: z.number().min(0).default(0),
   timestamp: z.number(),
 })
 export type GameState = z.infer<typeof GameStateSchema>
@@ -49,6 +52,7 @@ export function defaultGameState(): GameState {
     upgrades: { blaster: 1, collector: 1, storage: 1 },
     cargo: { scrap: 0, fragments: 0, silver: 0, gold: 0, capacity: 50 },
     hp: 100,
+    highScore: 0,
     timestamp: Date.now(),
   }
 }

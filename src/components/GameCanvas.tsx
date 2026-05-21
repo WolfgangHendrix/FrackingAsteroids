@@ -5,6 +5,7 @@ import type { GameScene, MetalVariant } from '@/game/scene'
 import type { TutorialStep } from '@/hooks/useTutorial'
 import type { MiningTool } from '@/game/types'
 import type { ArbiterHudInfo } from '@/game/arbiter-comms'
+import type { RunStats } from '@/game/ledger-config'
 
 /** Arbiter encounter lifecycle event surfaced to React for comms banners. */
 export type ArbiterEvent = { type: 'arrives' | 'defeated' | 'withdrawn'; mark: number }
@@ -14,6 +15,7 @@ export interface GameCanvasHandle {
   resetShipToStation: () => void
   setMiningTool: (tool: MiningTool) => void
   setCollectorTier: (tier: number) => void
+  respawnAfterDeath: () => void
 }
 
 interface GameCanvasProps {
@@ -38,6 +40,7 @@ interface GameCanvasProps {
   onLedgerChanged?: (ledger: number) => void
   onArbiterChanged?: (info: ArbiterHudInfo | null) => void
   onArbiterEvent?: (event: ArbiterEvent) => void
+  onRunEnded?: (stats: RunStats) => void
   // Prologue callbacks
   onPrologueReady?: () => void
   onFieldCleared?: () => void
@@ -68,6 +71,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
     onLedgerChanged,
     onArbiterChanged,
     onArbiterEvent,
+    onRunEnded,
     onPrologueReady,
     onFieldCleared,
     onArbiterArrived,
@@ -98,6 +102,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
   const onLedgerChangedRef = useRef(onLedgerChanged)
   const onArbiterChangedRef = useRef(onArbiterChanged)
   const onArbiterEventRef = useRef(onArbiterEvent)
+  const onRunEndedRef = useRef(onRunEnded)
   const onPrologueReadyRef = useRef(onPrologueReady)
   const onFieldClearedRef = useRef(onFieldCleared)
   const onArbiterArrivedRef = useRef(onArbiterArrived)
@@ -115,6 +120,9 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
     },
     setCollectorTier: (tier: number) => {
       sceneRef.current?.setCollectorTier(tier)
+    },
+    respawnAfterDeath: () => {
+      sceneRef.current?.respawnAfterDeath()
     },
   }))
 
@@ -204,6 +212,10 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
   }, [onArbiterEvent])
 
   useEffect(() => {
+    onRunEndedRef.current = onRunEnded
+  }, [onRunEnded])
+
+  useEffect(() => {
     onPrologueReadyRef.current = onPrologueReady
   }, [onPrologueReady])
 
@@ -249,6 +261,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
           onLedgerChanged: (ledger: number) => onLedgerChangedRef.current?.(ledger),
           onArbiterChanged: (info: ArbiterHudInfo | null) => onArbiterChangedRef.current?.(info),
           onArbiterEvent: (event: ArbiterEvent) => onArbiterEventRef.current?.(event),
+          onRunEnded: (stats: RunStats) => onRunEndedRef.current?.(stats),
           onPrologueReady: () => onPrologueReadyRef.current?.(),
           onFieldCleared: () => onFieldClearedRef.current?.(),
           onArbiterArrived: () => onArbiterArrivedRef.current?.(),

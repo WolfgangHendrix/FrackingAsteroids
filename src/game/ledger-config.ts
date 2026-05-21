@@ -113,6 +113,27 @@ export const ARBITER_DEFEAT_LEDGER_FACTOR = 0.35
 export const ARBITER_EVADE_LEDGER_RELIEF = 90
 
 // ---------------------------------------------------------------------------
+// Run scoring
+// ---------------------------------------------------------------------------
+
+/** End-of-run statistics surfaced to the summary screen. */
+export interface RunStats {
+  /** Arbiters destroyed this run. */
+  marksDefeated: number
+  /** Highest Ledger value reached this run. */
+  peakLedger: number
+  /** Seconds survived this run. */
+  runTime: number
+  /** Composite score (see computeScore). */
+  score: number
+}
+
+/** Composite run score: peak Ledger plus a heavy bonus per Arbiter destroyed. */
+export function computeScore(peakLedger: number, marksDefeated: number): number {
+  return Math.round(peakLedger) + marksDefeated * 500
+}
+
+// ---------------------------------------------------------------------------
 // Field replenishment
 // ---------------------------------------------------------------------------
 

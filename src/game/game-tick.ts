@@ -176,6 +176,14 @@ export interface TickState {
   arbiter: ArbiterState | null
   /** Number of Arbiter encounters started so far (the current/last Mark). */
   arbiterMark: number
+  /** Highest Ledger value reached this run (end-of-run scoring). */
+  peakLedger: number
+  /** Arbiters destroyed this run. */
+  marksDefeated: number
+  /** Seconds elapsed in endless play this run. */
+  runTime: number
+  /** Latch so the run-ended event fires exactly once. */
+  endlessDeathFired: boolean
 
   // Prologue
   prologueFieldSpawned: boolean
@@ -360,6 +368,10 @@ export function createTickState(config?: TickStateConfig): TickState {
     asteroidSpawnCounter: 1,
     arbiter: null,
     arbiterMark: 0,
+    peakLedger: 0,
+    marksDefeated: 0,
+    runTime: 0,
+    endlessDeathFired: false,
 
     prologueFieldSpawned: false,
     prologueAsteroidsDestroyed: 0,
@@ -1194,7 +1206,12 @@ export function tick(state: TickState, input: TickInput): TickResult {
     if (!inStationRange) state.repairedThisVisit = false
   }
 
-  if (inStationRange && !state.repairedThisVisit && sDist <= STATION_REPAIR_DISTANCE) {
+  if (
+    inStationRange &&
+    !state.repairedThisVisit &&
+    sDist <= STATION_REPAIR_DISTANCE &&
+    state.playerHp > 0
+  ) {
     state.repairedThisVisit = true
     state.playerHp = PLAYER_MAX_HP
     result.stationRepaired = true
@@ -1282,6 +1299,8 @@ function updateEndlessMode(
   }
   state.ledger += destroyed * LEDGER_PER_ASTEROID
   state.ledger += result.metalCollected.length * LEDGER_PER_METAL
+  state.peakLedger = Math.max(state.peakLedger, state.ledger)
+  state.runTime += dt
 
   // --- Cull destroyed rocks and ones the player has long since left behind ---
   const viewDiag = Math.hypot(input.viewBounds.halfW, input.viewBounds.halfH)
@@ -1340,7 +1359,7 @@ function updateEndlessMode(
     }
 
     if (arb.hp <= 0) {
-      // Destroyed — a big scrap payout and hard Ledger relief.
+      // Destroyed — scrap payout, full hull restored, hard Ledger relief.
       const boxCount = 4 + arb.mark
       for (let i = 0; i < boxCount; i++) {
         const a = (i / boxCount) * Math.PI * 2 + Math.random() * 0.5
@@ -1348,6 +1367,9 @@ function updateEndlessMode(
         state.scrapBoxes.push(createScrapBox(arb.x + Math.cos(a) * r, arb.y + Math.sin(a) * r))
       }
       state.ledger = Math.max(0, state.ledger * ARBITER_DEFEAT_LEDGER_FACTOR)
+      state.playerHp = PLAYER_MAX_HP
+      state.marksDefeated++
+      result.playerDamaged = true
       result.arbiterDefeated = { x: arb.x, y: arb.y, mark: arb.mark }
       state.arbiter = null
     } else {
@@ -1391,6 +1413,12 @@ function updateEndlessMode(
   // --- Prune destroyed enemies so the pool never grows unbounded ---
   if (state.ambushEnemies.some((e) => !e.alive)) {
     state.ambushEnemies = state.ambushEnemies.filter((e) => e.alive)
+  }
+
+  // --- Run-ending: hull lost ---
+  if (state.playerHp <= 0 && !state.endlessDeathFired) {
+    state.endlessDeathFired = true
+    result.playerKilled = true
   }
 }
 

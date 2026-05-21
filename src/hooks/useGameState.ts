@@ -25,6 +25,7 @@ export interface GameStateHook {
   sellMaterials: () => number
   buyUpgrade: (type: keyof Upgrades, cost: number, onPurchased?: (ok: boolean) => void) => void
   spendScrap: (amount: number) => boolean
+  resetRunCargo: () => void
 }
 
 export function useGameState(): GameStateHook {
@@ -90,6 +91,11 @@ export function useGameState(): GameStateHook {
     [],
   )
 
+  /** Wipe uncashed cargo (silver/gold/fragments) — used by the death respawn. */
+  const resetRunCargo = useCallback(() => {
+    setCargo((prev) => ({ ...prev, fragments: 0, silver: 0, gold: 0 }))
+  }, [])
+
   /** Deduct scrap if affordable. Returns true on success. */
   const spendScrap = useCallback((amount: number): boolean => {
     let success = false
@@ -117,5 +123,6 @@ export function useGameState(): GameStateHook {
     sellMaterials,
     buyUpgrade,
     spendScrap,
+    resetRunCargo,
   }
 }

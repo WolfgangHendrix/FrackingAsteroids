@@ -6,8 +6,10 @@ import type { GameCanvasHandle, ArbiterEvent } from '@/components/GameCanvas'
 import { HUD } from '@/components/HUD'
 import { ArbiterBanner } from '@/components/ArbiterBanner'
 import type { ArbiterBannerData } from '@/components/ArbiterBanner'
+import { RunSummary } from '@/components/RunSummary'
 import type { ArbiterHudInfo } from '@/game/arbiter-comms'
 import { arbiterArrivalLine, arbiterDefeatLine, arbiterWithdrawLine } from '@/game/arbiter-comms'
+import type { RunStats } from '@/game/ledger-config'
 import { SoundFab } from '@/components/SoundFab'
 import { StartScreen } from '@/components/StartScreen'
 import { TutorialOverlay } from '@/components/TutorialOverlay'
@@ -40,6 +42,10 @@ export default function Home() {
   const [ledger, setLedger] = useState(0)
   const [arbiterHud, setArbiterHud] = useState<ArbiterHudInfo | null>(null)
   const [arbiterBanner, setArbiterBanner] = useState<ArbiterBannerData | null>(null)
+  const [runOver, setRunOver] = useState(false)
+  const [runStats, setRunStats] = useState<RunStats | null>(null)
+  const [highScore, setHighScore] = useState(0)
+  const [isNewBest, setIsNewBest] = useState(false)
   const gameCanvasRef = useRef<GameCanvasHandle>(null)
   const {
     paused,
@@ -55,8 +61,9 @@ export default function Home() {
     sellMaterials,
     buyUpgrade,
     spendScrap,
+    resetRunCargo,
   } = useGameState()
-  const { save } = useGamePersistence(activeSlot)
+  const { save, load } = useGamePersistence(activeSlot)
   const tutorial = useTutorial(isNewGame && screen === 'game')
 
   // --- Auto-save on state changes triggered by game events ---
@@ -76,9 +83,18 @@ export default function Home() {
       upgrades,
       cargo: { ...cargo, scrap },
       hp: playerHp,
+      highScore,
       timestamp: Date.now(),
     })
   }, [saveSeq]) // eslint-disable-line react-hooks/exhaustive-deps -- save reads latest state at trigger time
+
+  // Load the slot's best score when a game begins.
+  useEffect(() => {
+    if (!activeSlot) return
+    void load().then((s) => {
+      if (s) setHighScore(s.highScore)
+    })
+  }, [activeSlot, load])
 
   // --- Music ---
   // Start the menu loop whenever the start screen is showing; arm a one-shot
@@ -207,6 +223,25 @@ export default function Home() {
     setArbiterBanner({ text, key: Date.now() })
   }, [])
 
+  const handleRunEnded = useCallback(
+    (stats: RunStats) => {
+      setRunStats(stats)
+      setIsNewBest(stats.score > highScore)
+      setHighScore((best) => Math.max(best, stats.score))
+      setRunOver(true)
+      requestSave()
+    },
+    [highScore, requestSave],
+  )
+
+  const handleContinue = useCallback(() => {
+    gameCanvasRef.current?.respawnAfterDeath()
+    resetRunCargo()
+    setRunStats(null)
+    setRunOver(false)
+    requestSave()
+  }, [resetRunCargo, requestSave])
+
   const handleCrystallineDeflect = useCallback(() => {
     // Don't show lazer tutorial popup during prologue — ship already has lazer
     if (tutorialStep.startsWith('prologue-')) return
@@ -317,15 +352,17 @@ export default function Home() {
   // stick / right stick / RT only).
   const inGameOverlayKey = paused
     ? 'paused'
-    : lazerPopupVisible
-      ? 'lazer-popup'
-      : tradeMenuOpen
-        ? 'trade'
-        : tutorial.active
-          ? `tut:${tutorial.step}`
-          : shopFabVisible
-            ? 'shop'
-            : ''
+    : runOver
+      ? 'run-over'
+      : lazerPopupVisible
+        ? 'lazer-popup'
+        : tradeMenuOpen
+          ? 'trade'
+          : tutorial.active
+            ? `tut:${tutorial.step}`
+            : shopFabVisible
+              ? 'shop'
+              : ''
   useGamepadMenu({
     enabled: screen === 'game',
     resetKey: inGameOverlayKey,
@@ -350,7 +387,7 @@ export default function Home() {
     <main className="relative w-screen h-dvh overflow-hidden bg-space-900">
       <GameCanvas
         ref={gameCanvasRef}
-        paused={paused || tradeMenuOpen || lazerPopupVisible}
+        paused={paused || tradeMenuOpen || lazerPopupVisible || runOver}
         frozen={tutorial.frozen || shopTutorialFreeze}
         tutorialStep={tutorial.step}
         onCollect={handleCollect}
@@ -371,6 +408,7 @@ export default function Home() {
         onLedgerChanged={setLedger}
         onArbiterChanged={setArbiterHud}
         onArbiterEvent={handleArbiterEvent}
+        onRunEnded={handleRunEnded}
         onPrologueReady={tutorial.onPrologueReady}
         onFieldCleared={tutorial.onFieldCleared}
         onArbiterArrived={tutorial.onArbiterArrived}
@@ -432,6 +470,14 @@ export default function Home() {
         </div>
       )}
       {paused && <SoundFab />}
+      {runOver && runStats && (
+        <RunSummary
+          stats={runStats}
+          highScore={highScore}
+          isNewBest={isNewBest}
+          onContinue={handleContinue}
+        />
+      )}
       {prologueFade !== 'none' && (
         <div
           className="absolute inset-0 bg-black z-50 flex items-center justify-center"
