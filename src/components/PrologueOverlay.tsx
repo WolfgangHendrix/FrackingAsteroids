@@ -1,8 +1,14 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TutorialStep } from '@/hooks/useTutorial'
 import { ARBITER_DIALOGUE } from '@/game/prologue-config'
+
+const ARBITER_VOICE_LINES = [
+  './audio/vo_arbeter01.wav',
+  './audio/vo_arbeter02.wav',
+  './audio/vo_arbeter03.wav',
+] as const
 
 interface PrologueOverlayProps {
   step: TutorialStep
@@ -36,7 +42,23 @@ function FadingText({ text, color = 'text-hud-green' }: { text: string; color?: 
  */
 function ArbiterDialogue({ onComplete }: { onComplete: () => void }) {
   const [lineIndex, setLineIndex] = useState(0)
+  const voiceRef = useRef<HTMLAudioElement | null>(null)
   const allRevealed = lineIndex >= ARBITER_DIALOGUE.length
+
+  useEffect(() => {
+    if (lineIndex >= ARBITER_VOICE_LINES.length) return
+
+    voiceRef.current?.pause()
+    const voice = new Audio(ARBITER_VOICE_LINES[lineIndex])
+    voice.preload = 'auto'
+    voiceRef.current = voice
+    void voice.play().catch(() => {})
+
+    return () => {
+      voice.pause()
+      if (voiceRef.current === voice) voiceRef.current = null
+    }
+  }, [lineIndex])
 
   // Auto-advance: hold each line on screen for a readable beat. The duration
   // scales with line length so longer lines get more time.
