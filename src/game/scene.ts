@@ -16,6 +16,8 @@ import {
 } from './gas-station-model'
 import { createProjectileModel } from './projectile-model'
 import { createLazerBeam, updateLazerBeam, disposeLazerBeam } from './lazer-beam'
+import { createTractorBeam, updateTractorBeam, disposeTractorBeam } from './tractor-beam'
+import type { TractorBeam } from './tractor-beam'
 import { createInputState, createInputHandler, createAimState, createAimHandler } from './input'
 import { createVirtualJoystick, createAimJoystick } from './virtual-joystick'
 import { createGamepadHandler } from './gamepad'
@@ -236,6 +238,10 @@ export function createGameScene(
   // --- Lazer Beam (persistent mesh, hidden when not firing) ---
   const lazerBeam = createLazerBeam()
   scene.add(lazerBeam)
+
+  // --- Arbiter Tractor Beam (persistent mesh, hidden when not active) ---
+  const tractorBeam: TractorBeam = createTractorBeam()
+  scene.add(tractorBeam.group)
 
   // --- Asteroids ---
   // Map of asteroid id → { model, healthMeter } for all asteroids in the world
@@ -523,6 +529,7 @@ export function createGameScene(
   let wasPaused = false
   let prevLedgerInt = -1
   let prevArbiterKey = ''
+  let prevTractorActive = false
 
   function loop(): void {
     animId = requestAnimationFrame(loop)
@@ -926,6 +933,22 @@ export function createGameScene(
         )
       }
 
+      // --- Arbiter tractor beam visual + feedback ---
+      updateTractorBeam(
+        tractorBeam,
+        !!arb?.tractorActive,
+        arb ? arb.x : 0,
+        arb ? arb.y : 0,
+        arb ? arb.tractorAngle : 0,
+        arb ? arb.tractorElapsed : 0,
+      )
+      if (arb?.tractorActive && !prevTractorActive) addTrauma(screenShake, 0.45)
+      prevTractorActive = !!arb?.tractorActive
+      if (result.arbiterCaptureHit) {
+        addTrauma(screenShake, 0.85)
+        playPlayerHit()
+      }
+
       // Strip modules during prologue-strip
       if (result.stripAdvanced) {
         const moduleNames = ['turret', 'scoop', 'cargoPods', 'lazerLens']
@@ -1196,6 +1219,7 @@ export function createGameScene(
 
     // Clean up lazer beam
     disposeLazerBeam(lazerBeam)
+    disposeTractorBeam(tractorBeam)
 
     // Clean up explosions
     for (const e of explosions) {

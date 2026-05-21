@@ -51,6 +51,32 @@ export const ARBITER_EVADE_TIME = 48
 /** Grace period before the Arbiter's first volley. */
 const ARBITER_FIRST_VOLLEY_DELAY = 2.5
 
+// --- Tractor beam (capture attack) ----------------------------------------
+
+/** Length of the tractor capture cone. */
+export const TRACTOR_RANGE = 115
+
+/** Half-angle of the capture cone (radians). */
+export const TRACTOR_CONE_HALF_ANGLE = 0.42
+
+/** Pull acceleration on a caught ship — slightly above the ship's own thrust. */
+const TRACTOR_PULL_ACCEL = 210
+
+/** How long a tractor beam stays active once fired. */
+const TRACTOR_DURATION = 2.7
+
+/** Grace period before the Arbiter's first tractor beam. */
+const TRACTOR_FIRST_DELAY = 13
+
+/** Damage dealt when the beam drags the ship into the Arbiter's hull. */
+const TRACTOR_CAPTURE_DAMAGE = 22
+
+/** Seconds between tractor beams. */
+function tractorInterval(mark: number, phase: number): number {
+  const base = Math.max(7, 13 - mark * 0.4)
+  return phase === 2 ? base * 0.62 : base
+}
+
 // --- Per-Mark scaling --------------------------------------------------------
 
 /** Total hull for a given Mark. */
@@ -106,6 +132,17 @@ export interface ArbiterState {
   encounterTimer: number
   attackTimer: number
   reinforceTimer: number
+  // --- Tractor beam ---
+  /** Countdown to the next tractor beam. */
+  tractorTimer: number
+  /** Whether a capture beam is currently projecting. */
+  tractorActive: boolean
+  /** Seconds the current tractor beam has been active. */
+  tractorElapsed: number
+  /** Beam direction (radians), locked when the beam fires. */
+  tractorAngle: number
+  /** Whether this beam has already landed its capture hit. */
+  tractorHitLanded: boolean
 }
 
 /** Spawn a fresh Arbiter of the given Mark at a position. */
@@ -125,6 +162,11 @@ export function createArbiterState(mark: number, x: number, y: number): ArbiterS
     encounterTimer: 0,
     attackTimer: ARBITER_FIRST_VOLLEY_DELAY,
     reinforceTimer: reinforceInterval(mark, 1),
+    tractorTimer: TRACTOR_FIRST_DELAY,
+    tractorActive: false,
+    tractorElapsed: 0,
+    tractorAngle: 0,
+    tractorHitLanded: false,
   }
 }
 
@@ -176,6 +218,22 @@ export function updateArbiter(arbiter: ArbiterState, player: Ship, dt: number): 
   arbiter.encounterTimer += dt
   if (arbiter.encounterTimer >= ARBITER_EVADE_TIME) {
     arbiter.mode = 'withdrawing'
+    arbiter.tractorActive = false
+    return result
+  }
+
+  // --- Tractor beam: while a capture beam is up the Arbiter focuses it,
+  // holding position and holding fire until the beam expires. ---
+  if (arbiter.tractorActive) {
+    arbiter.tractorElapsed += dt
+    arbiter.vx *= 0.88
+    arbiter.vy *= 0.88
+    arbiter.x += arbiter.vx * dt
+    arbiter.y += arbiter.vy * dt
+    if (arbiter.tractorElapsed >= TRACTOR_DURATION) {
+      arbiter.tractorActive = false
+      arbiter.tractorTimer = tractorInterval(arbiter.mark, arbiter.phase)
+    }
     return result
   }
 
@@ -230,7 +288,59 @@ export function updateArbiter(arbiter: ArbiterState, player: Ship, dt: number): 
     result.reinforcements = arbiterReinforceCount(arbiter.mark)
   }
 
+  // --- Tractor beam charge-up: fire a capture cone at the player's bearing ---
+  arbiter.tractorTimer -= dt
+  if (arbiter.tractorTimer <= 0) {
+    arbiter.tractorActive = true
+    arbiter.tractorElapsed = 0
+    arbiter.tractorHitLanded = false
+    arbiter.tractorAngle = Math.atan2(player.y - arbiter.y, player.x - arbiter.x)
+  }
+
   return result
+}
+
+/**
+ * Apply the tractor beam's pull to the ship for one tick.
+ *
+ * While a beam is active and the ship sits inside the capture cone, the ship
+ * is hauled toward the Arbiter — the player must thrust clear (ideally
+ * sideways, out of the cone). If the beam drags the ship into the Arbiter's
+ * hull it lands one capture hit and the ship is flung back out.
+ *
+ * Returns the capture damage dealt this tick (0 on a normal tick).
+ */
+export function applyTractorPull(
+  arbiter: ArbiterState,
+  ship: Ship,
+  dt: number,
+): { captureDamage: number } {
+  if (!arbiter.tractorActive) return { captureDamage: 0 }
+
+  const dx = ship.x - arbiter.x
+  const dy = ship.y - arbiter.y
+  const dist = Math.hypot(dx, dy) || 1
+  if (dist > TRACTOR_RANGE) return { captureDamage: 0 }
+
+  // Inside the capture cone?
+  let diff = Math.atan2(dy, dx) - arbiter.tractorAngle
+  while (diff > Math.PI) diff -= Math.PI * 2
+  while (diff < -Math.PI) diff += Math.PI * 2
+  if (Math.abs(diff) > TRACTOR_CONE_HALF_ANGLE) return { captureDamage: 0 }
+
+  // Caught — haul the ship toward the Arbiter.
+  ship.velocityX -= (dx / dist) * TRACTOR_PULL_ACCEL * dt
+  ship.velocityY -= (dy / dist) * TRACTOR_PULL_ACCEL * dt
+
+  // Dragged into the hull — land the capture hit and fling the ship clear.
+  if (!arbiter.tractorHitLanded && dist < ARBITER_COLLISION_RADIUS + 7) {
+    arbiter.tractorHitLanded = true
+    const knockback = 95
+    ship.velocityX = (dx / dist) * knockback
+    ship.velocityY = (dy / dist) * knockback
+    return { captureDamage: TRACTOR_CAPTURE_DAMAGE }
+  }
+  return { captureDamage: 0 }
 }
 
 // ---------------------------------------------------------------------------

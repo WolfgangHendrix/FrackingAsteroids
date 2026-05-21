@@ -77,6 +77,8 @@ import {
   updateArbiter,
   checkProjectileArbiterCollisions,
   checkBeamArbiterCollisions,
+  applyTractorPull,
+  ARBITER_COLLISION_RADIUS,
 } from './arbiter'
 import type { ArbiterState } from './arbiter'
 import {
@@ -273,6 +275,8 @@ export interface TickResult {
   arbiterWithdrawn: { mark: number } | null
   /** True on any tick the player damaged the Arbiter. */
   arbiterHit: boolean
+  /** True the tick the Arbiter's tractor beam drags the ship into its hull. */
+  arbiterCaptureHit: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -423,6 +427,7 @@ function emptyResult(): TickResult {
     arbiterDefeated: null,
     arbiterWithdrawn: null,
     arbiterHit: false,
+    arbiterCaptureHit: false,
   }
 }
 
@@ -507,6 +512,16 @@ function aimLineHasVisibleTarget(
       onScreen(e.x, e.y, ENEMY_COLLISION_RADIUS) &&
       pointToSegmentDistSq(e.x, e.y, ship.x, ship.y, endX, endY) <
         ENEMY_COLLISION_RADIUS * ENEMY_COLLISION_RADIUS
+    ) {
+      return true
+    }
+  }
+  if (state.arbiter && state.arbiter.hp > 0 && state.arbiter.mode === 'hunting') {
+    const ar = state.arbiter
+    if (
+      onScreen(ar.x, ar.y, ARBITER_COLLISION_RADIUS) &&
+      pointToSegmentDistSq(ar.x, ar.y, ship.x, ship.y, endX, endY) <
+        ARBITER_COLLISION_RADIUS * ARBITER_COLLISION_RADIUS
     ) {
       return true
     }
@@ -731,6 +746,16 @@ export function tick(state: TickState, input: TickInput): TickResult {
 
   if (Math.sqrt(state.ship.x ** 2 + state.ship.y ** 2) > 2) {
     result.shipMoved = true
+  }
+
+  // --- Arbiter tractor beam: haul the ship in while caught in the cone ---
+  if (state.arbiter && state.arbiter.tractorActive) {
+    const { captureDamage } = applyTractorPull(state.arbiter, state.ship, dt)
+    if (captureDamage > 0) {
+      state.playerHp = Math.max(0, state.playerHp - captureDamage)
+      result.playerDamaged = true
+      result.arbiterCaptureHit = true
+    }
   }
 
   // --- Asteroid drift ---
