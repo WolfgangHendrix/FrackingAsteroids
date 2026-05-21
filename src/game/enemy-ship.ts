@@ -84,14 +84,16 @@ const CARRIER_RANGE = 135
 export const CARRIER_DRONE_INTERVAL = 3.6
 /** Max drones a carrier keeps in the field at once. */
 export const CARRIER_MAX_DRONES = 3
-/** Carrier collision radius — bigger hull than a grunt. */
-const CARRIER_COLLISION_RADIUS = 6
+/** Carrier collision radius — a hulking mothership, far bigger than a grunt. */
+const CARRIER_COLLISION_RADIUS = 11
+/** Visual scale applied to the carrier's voxel body. */
+const CARRIER_BODY_SCALE = 1.8
 
 // --- Drone: tiny, fast, fragile swarm unit launched by carriers ---
 export const DRONE_MAX_HP = 1
 /** Drones deal a fraction of the carrier's configured projectile damage. */
 export const DRONE_DAMAGE_MULT = 0.5
-const DRONE_COLLISION_RADIUS = 2
+const DRONE_COLLISION_RADIUS = 3
 
 /** The behavioural class of a hostile ship. */
 export type EnemyKind = 'grunt' | 'sniper' | 'scavenger' | 'carrier' | 'drone'
@@ -168,8 +170,8 @@ export interface EnemyShip {
   // --- Scavenger state ---
   /** True once the scavenger has loot and is bolting for the sector edge. */
   fleeing: boolean
-  /** Number of loot items the scavenger has hauled off. */
-  carrying: number
+  /** Loot the scavenger has stolen — scattered back when it is destroyed. */
+  stolenLoot: ('metal' | 'scrap')[]
   /** Id of the loot item the scavenger is currently chasing, or null. */
   targetLootId: string | null
   /** Last known position of the targeted loot. */
@@ -318,9 +320,15 @@ function createScavengerModel(): THREE.Group {
   return group
 }
 
-/** Carrier — bulky teal hull with side drone bays and triple engines. */
+/**
+ * Carrier — a hulking teal mothership with side drone bays and triple
+ * engines. The voxels live in an inner group scaled up by CARRIER_BODY_SCALE
+ * so the carrier dwarfs the drones it launches; the returned outer group is
+ * left unscaled so attachments (health meter) keep their normal size.
+ */
 function createCarrierModel(): THREE.Group {
   const group = new THREE.Group()
+  const body = new THREE.Group()
   const hull = 0x3a6a7a
   const accent = 0x66ddee
   const dark = 0x223a44
@@ -328,36 +336,45 @@ function createCarrierModel(): THREE.Group {
   for (let x = -2; x <= 2; x++) {
     for (let y = -3; y <= 3; y++) {
       const edge = Math.abs(x) === 2 || Math.abs(y) === 3
-      addVoxel(group, x, y, 0, edge ? dark : hull)
+      addVoxel(body, x, y, 0, edge ? dark : hull)
     }
   }
   // Drone bays — glowing slots on the flanks
-  addVoxel(group, -3, 0, 0, accent)
-  addVoxel(group, 3, 0, 0, accent)
-  addVoxel(group, -3, -1, 0, dark)
-  addVoxel(group, 3, -1, 0, dark)
-  addVoxel(group, -3, 1, 0, dark)
-  addVoxel(group, 3, 1, 0, dark)
+  addVoxel(body, -3, 0, 0, accent)
+  addVoxel(body, 3, 0, 0, accent)
+  addVoxel(body, -3, -1, 0, dark)
+  addVoxel(body, 3, -1, 0, dark)
+  addVoxel(body, -3, 1, 0, dark)
+  addVoxel(body, 3, 1, 0, dark)
   // Command bridge
-  addVoxel(group, 0, 2, 0.8, accent)
-  addVoxel(group, 0, 1, 0.6, hull)
+  addVoxel(body, 0, 2, 0.8, accent)
+  addVoxel(body, 0, 1, 0.6, hull)
   // Triple engines
-  addVoxel(group, -1, -4, -0.3, 0xff8800)
-  addVoxel(group, 1, -4, -0.3, 0xff8800)
-  addVoxel(group, 0, -4, -0.3, 0xffaa00)
+  addVoxel(body, -1, -4, -0.3, 0xff8800)
+  addVoxel(body, 1, -4, -0.3, 0xff8800)
+  addVoxel(body, 0, -4, -0.3, 0xffaa00)
+
+  body.scale.setScalar(CARRIER_BODY_SCALE)
+  group.add(body)
   return group
 }
 
-/** Drone — tiny red swarm unit launched by carriers. */
+/** Drone — a normal-sized red fighter launched by carriers. */
 function createDroneModel(): THREE.Group {
   const group = new THREE.Group()
   const hull = 0xcc4444
-  addVoxel(group, 0, 0, 0, hull)
-  addVoxel(group, 0, 1, 0, hull)
-  addVoxel(group, -1, 0, 0, hull)
-  addVoxel(group, 1, 0, 0, hull)
-  addVoxel(group, 0, 1, 0.4, 0xff8888)
-  group.scale.setScalar(0.55)
+  const wing = 0xff6644
+
+  // Slim body
+  for (let row = -1; row <= 2; row++) addVoxel(group, 0, row, 0, hull)
+  addVoxel(group, 0, 2, 0.4, 0xff8888) // cockpit
+  // Stubby swept wings
+  addVoxel(group, -1, 0, 0, wing)
+  addVoxel(group, 1, 0, 0, wing)
+  addVoxel(group, -2, -1, 0, wing)
+  addVoxel(group, 2, -1, 0, wing)
+  // Engine
+  addVoxel(group, 0, -2, -0.3, 0xff8800)
   return group
 }
 
@@ -471,7 +488,7 @@ export function createEnemyShip(
     charging: false,
     chargeTimer: 0,
     fleeing: false,
-    carrying: 0,
+    stolenLoot: [],
     targetLootId: null,
     targetLootX: 0,
     targetLootY: 0,

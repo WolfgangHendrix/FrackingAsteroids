@@ -786,8 +786,11 @@ export function createGameScene(
       // Enemy spawned — add mesh to scene
       if (result.enemySpawned) {
         scene.add(result.enemySpawned.mesh)
-        // Enemy faces the player, so place the bar behind the ship (-Y)
-        const enemyHealthMeter = createHealthMeter(-HEALTH_BAR_OFFSET_Y)
+        // Enemy faces the player, so place the bar behind the ship (-Y),
+        // pushed clear of bigger hulls (the carrier).
+        const enemyHealthMeter = createHealthMeter(
+          -Math.max(HEALTH_BAR_OFFSET_Y, result.enemySpawned.collisionRadius + 8),
+        )
         result.enemySpawned.mesh.add(enemyHealthMeter)
         result.enemySpawned.mesh.userData.healthMeter = enemyHealthMeter
       }
@@ -842,8 +845,9 @@ export function createGameScene(
       // Ambush / patrol enemies — add meshes + health meters for newly spawned
       for (const ae of result.ambushEnemiesSpawned) {
         scene.add(ae.mesh)
-        // Enemy faces the player, so place the bar behind the ship (-Y)
-        const hm = createHealthMeter(-HEALTH_BAR_OFFSET_Y)
+        // Enemy faces the player, so place the bar behind the ship (-Y),
+        // pushed clear of bigger hulls (the carrier).
+        const hm = createHealthMeter(-Math.max(HEALTH_BAR_OFFSET_Y, ae.collisionRadius + 8))
         ae.mesh.add(hm)
         ae.mesh.userData.healthMeter = hm
       }

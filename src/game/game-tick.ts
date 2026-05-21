@@ -969,6 +969,7 @@ export function tick(state: TickState, input: TickInput): TickResult {
           state.scrapBoxes.push(box)
           result.enemyDestroyed = { x: h.enemy.x, y: h.enemy.y }
           result.enemyDestroyedEvent = true
+          dropScavengerLoot(state, result, h.enemy)
           if (h.isAmbush) {
             result.ambushEnemiesDestroyed.push(h.enemy)
           } else if (state.enemy === h.enemy) {
@@ -1309,6 +1310,7 @@ export function tick(state: TickState, input: TickInput): TickResult {
           state.scrapBoxes.push(box)
           result.enemyDestroyed = { x: ae.x, y: ae.y }
           result.enemyDestroyedEvent = true
+          dropScavengerLoot(state, result, ae)
           result.ambushEnemiesDestroyed.push(ae)
         }
       }
@@ -1576,8 +1578,8 @@ function updateSpecialEnemies(state: TickState, result: TickResult): void {
       const gdx = sc.targetLootX - sc.x
       const gdy = sc.targetLootY - sc.y
       if (gdx * gdx + gdy * gdy < SCAVENGER_GRAB_RANGE * SCAVENGER_GRAB_RANGE) {
-        stealLoot(state, result, sc.targetLootId)
-        sc.carrying++
+        const stolen = stealLoot(state, result, sc.targetLootId)
+        if (stolen) sc.stolenLoot.push(stolen)
         sc.fleeing = true
         sc.targetLootId = null
       }
@@ -1619,17 +1621,41 @@ function nearestLoot(
   return best
 }
 
-/** Remove a stolen loot item from the world; scene.ts clears its mesh. */
-function stealLoot(state: TickState, result: TickResult, id: string): void {
+/**
+ * Remove a stolen loot item from the world; scene.ts clears its mesh.
+ * Returns which kind was taken so the scavenger can drop it back on death.
+ */
+function stealLoot(state: TickState, result: TickResult, id: string): 'metal' | 'scrap' | null {
   const mi = state.metalChunks.findIndex((c) => c.id === id)
   if (mi >= 0) {
     state.metalChunks.splice(mi, 1)
     result.metalStolen.push(id)
-    return
+    return 'metal'
   }
   const si = state.scrapBoxes.findIndex((b) => b.id === id)
   if (si >= 0) {
     state.scrapBoxes.splice(si, 1)
     result.scrapStolen.push(id)
+    return 'scrap'
   }
+  return null
+}
+
+/**
+ * Scatter the loot a scavenger had stolen when it is destroyed — the player's
+ * reward for catching the thief before it escaped the sector.
+ */
+function dropScavengerLoot(state: TickState, result: TickResult, enemy: EnemyShip): void {
+  if (enemy.kind !== 'scavenger' || enemy.stolenLoot.length === 0) return
+  for (const kind of enemy.stolenLoot) {
+    const angle = Math.random() * Math.PI * 2
+    if (kind === 'metal') {
+      const chunk = createMetalChunk(enemy.x, enemy.y, Math.cos(angle), Math.sin(angle))
+      state.metalChunks.push(chunk)
+      result.newMetalChunks.push(chunk)
+    } else {
+      state.scrapBoxes.push(createScrapBox(enemy.x, enemy.y))
+    }
+  }
+  enemy.stolenLoot = []
 }
