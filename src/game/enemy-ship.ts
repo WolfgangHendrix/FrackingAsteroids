@@ -85,15 +85,16 @@ export const CARRIER_DRONE_INTERVAL = 3.6
 /** Max drones a carrier keeps in the field at once. */
 export const CARRIER_MAX_DRONES = 3
 /** Carrier collision radius — a hulking mothership, far bigger than a grunt. */
-const CARRIER_COLLISION_RADIUS = 18
+const CARRIER_COLLISION_RADIUS = 36
 /** Visual scale applied to the carrier's voxel body. */
-const CARRIER_BODY_SCALE = 3
+const CARRIER_BODY_SCALE = 6
 
 // --- Drone: tiny, fast, fragile swarm unit launched by carriers ---
 export const DRONE_MAX_HP = 1
 /** Drones deal a fraction of the carrier's configured projectile damage. */
 export const DRONE_DAMAGE_MULT = 0.5
 const DRONE_COLLISION_RADIUS = 3
+const DRONE_LAUNCH_SPEED = 42
 
 /** The behavioural class of a hostile ship. */
 export type EnemyKind = 'grunt' | 'sniper' | 'scavenger' | 'carrier' | 'drone'
@@ -180,6 +181,10 @@ export interface EnemyShip {
   // --- Carrier state ---
   /** Countdown to the next drone launch. */
   droneTimer: number
+  /** True while a carrier-launched drone is leaving its bay for a staging point. */
+  launching: boolean
+  launchTargetX: number
+  launchTargetY: number
 }
 
 export interface EnemyProjectile {
@@ -508,6 +513,9 @@ export function createEnemyShip(
     targetLootX: 0,
     targetLootY: 0,
     droneTimer: CARRIER_DRONE_INTERVAL * (0.4 + Math.random() * 0.5),
+    launching: false,
+    launchTargetX: x,
+    launchTargetY: y,
   }
 }
 
@@ -602,6 +610,10 @@ export function updateEnemyShip(
   asteroids: Asteroid[] = [],
 ): EnemyProjectile[] {
   if (!enemy.alive) return []
+  if (enemy.kind === 'drone' && enemy.launching) {
+    return updateDroneLaunchAI(enemy, dt, asteroids)
+  }
+
   switch (enemy.kind) {
     case 'sniper':
       return updateSniperAI(enemy, player, dt, asteroids)
@@ -613,6 +625,38 @@ export function updateEnemyShip(
       // grunt and carrier-launched drones share the orbiting dogfight AI
       return updateGruntAI(enemy, player, dt, asteroids)
   }
+}
+
+/**
+ * Carrier-launched drones visibly depart the mothership before entering their
+ * normal dogfight AI. They do not shoot until they reach the staging slot.
+ */
+function updateDroneLaunchAI(
+  enemy: EnemyShip,
+  dt: number,
+  asteroids: Asteroid[] = [],
+): EnemyProjectile[] {
+  const dx = enemy.launchTargetX - enemy.x
+  const dy = enemy.launchTargetY - enemy.y
+  const dist = Math.sqrt(dx * dx + dy * dy)
+  if (dist <= Math.max(0.8, DRONE_LAUNCH_SPEED * dt)) {
+    enemy.x = enemy.launchTargetX
+    enemy.y = enemy.launchTargetY
+    enemy.vx = 0
+    enemy.vy = 0
+    enemy.launching = false
+  } else {
+    const nx = dx / dist
+    const ny = dy / dist
+    enemy.vx = nx * DRONE_LAUNCH_SPEED
+    enemy.vy = ny * DRONE_LAUNCH_SPEED
+    enemy.x += enemy.vx * dt
+    enemy.y += enemy.vy * dt
+  }
+
+  enemy.rotation = Math.atan2(dy, dx) - Math.PI / 2
+  finalizeEnemy(enemy, asteroids)
+  return []
 }
 
 /**

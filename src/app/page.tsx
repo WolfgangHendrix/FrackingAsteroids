@@ -30,6 +30,7 @@ import type { Upgrades, SaveSlotId } from '@/lib/schemas'
 type Screen = 'title' | 'start' | 'game'
 
 const ACTIVE_SLOT_KEY = 'fracking-asteroids-active-slot'
+const CRYSTALLINE_PROMPT_INTERVALS = [3, 5, 10] as const
 
 export default function Home() {
   const [screen, setScreen] = useState<Screen>('title')
@@ -48,6 +49,9 @@ export default function Home() {
   const [highScore, setHighScore] = useState(0)
   const [isNewBest, setIsNewBest] = useState(false)
   const gameCanvasRef = useRef<GameCanvasHandle>(null)
+  const crystallineDeflectCountRef = useRef(0)
+  const nextCrystallinePromptAtRef = useRef(1)
+  const crystallinePromptIntervalIndexRef = useRef(0)
   const {
     paused,
     scrap,
@@ -240,8 +244,22 @@ export default function Home() {
   const handleCrystallineDeflect = useCallback(() => {
     // Don't show lazer tutorial popup during prologue — ship already has lazer
     if (tutorialStep.startsWith('prologue-')) return
+    if (hasLazer) return
+
+    crystallineDeflectCountRef.current += 1
+    if (crystallineDeflectCountRef.current < nextCrystallinePromptAtRef.current) return
+
+    const interval =
+      CRYSTALLINE_PROMPT_INTERVALS[
+        Math.min(crystallinePromptIntervalIndexRef.current, CRYSTALLINE_PROMPT_INTERVALS.length - 1)
+      ]
+    nextCrystallinePromptAtRef.current += interval
+    if (crystallinePromptIntervalIndexRef.current < CRYSTALLINE_PROMPT_INTERVALS.length - 1) {
+      crystallinePromptIntervalIndexRef.current += 1
+    }
+
     setLazerPopupVisible(true)
-  }, [tutorialStep])
+  }, [hasLazer, tutorialStep])
 
   const handleDismissLazerPopup = useCallback(() => {
     setLazerPopupVisible(false)

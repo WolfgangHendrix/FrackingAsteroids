@@ -108,6 +108,18 @@ const STATION_REPAIR_DISTANCE = 30
 const AMBUSH_SHOOT_MIN = 0.3
 const AMBUSH_SHOOT_MAX = 0.5
 const AMBUSH_PROJECTILE_DAMAGE = 20
+const DRONE_POST_LAUNCH_SHOOT_DELAY = 0.8
+
+const DRONE_LAUNCH_SLOTS: readonly {
+  bayX: number
+  bayY: number
+  targetX: number
+  targetY: number
+}[] = [
+  { bayX: -0.5, bayY: 0.05, targetX: -1.2, targetY: 0.45 },
+  { bayX: 0.5, bayY: 0.05, targetX: 1.2, targetY: 0.45 },
+  { bayX: 0, bayY: -0.4, targetX: 0, targetY: -1.25 },
+]
 
 // ---------------------------------------------------------------------------
 // Interfaces
@@ -1527,17 +1539,28 @@ function updateSpecialEnemies(state: TickState, result: TickResult): void {
       (n, e) => n + (e.kind === 'drone' && e.alive ? 1 : 0),
       0,
     )
-    if (aliveDrones >= CARRIER_MAX_DRONES * carriers.length) continue
-    const ang = Math.random() * Math.PI * 2
-    const launchRadius = carrier.collisionRadius + 4
-    const drone = createEnemyShip(
-      carrier.x + Math.cos(ang) * launchRadius,
-      carrier.y + Math.sin(ang) * launchRadius,
-      carrier.projectileDamage * DRONE_DAMAGE_MULT,
-      'drone',
-    )
-    state.ambushEnemies.push(drone)
-    result.ambushEnemiesSpawned.push(drone)
+    const maxDrones = CARRIER_MAX_DRONES * carriers.length
+    const spawnCount = Math.min(CARRIER_MAX_DRONES, maxDrones - aliveDrones)
+    if (spawnCount <= 0) continue
+
+    for (let i = 0; i < spawnCount; i++) {
+      const slot = DRONE_LAUNCH_SLOTS[i % DRONE_LAUNCH_SLOTS.length]
+      const bay = carrierLocalPoint(carrier, slot.bayX, slot.bayY)
+      const target = carrierLocalPoint(carrier, slot.targetX, slot.targetY)
+      const drone = createEnemyShip(
+        bay.x,
+        bay.y,
+        carrier.projectileDamage * DRONE_DAMAGE_MULT,
+        'drone',
+      )
+      drone.launching = true
+      drone.launchTargetX = target.x
+      drone.launchTargetY = target.y
+      drone.shootTimer = DRONE_POST_LAUNCH_SHOOT_DELAY
+      drone.rotation = Math.atan2(target.y - bay.y, target.x - bay.x) - Math.PI / 2
+      state.ambushEnemies.push(drone)
+      result.ambushEnemiesSpawned.push(drone)
+    }
   }
 
   // --- Scavengers chase loot, steal it, then flee ---
@@ -1584,6 +1607,21 @@ function updateSpecialEnemies(state: TickState, result: TickResult): void {
         sc.targetLootId = null
       }
     }
+  }
+}
+
+function carrierLocalPoint(
+  carrier: EnemyShip,
+  localXRadius: number,
+  localYRadius: number,
+): { x: number; y: number } {
+  const x = localXRadius * carrier.collisionRadius
+  const y = localYRadius * carrier.collisionRadius
+  const cos = Math.cos(carrier.rotation)
+  const sin = Math.sin(carrier.rotation)
+  return {
+    x: carrier.x + x * cos - y * sin,
+    y: carrier.y + x * sin + y * cos,
   }
 }
 
