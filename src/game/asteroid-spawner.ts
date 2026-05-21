@@ -129,6 +129,57 @@ export function spawnAsteroidField(stationX: number, stationY: number, seed?: nu
   return asteroids
 }
 
+/** Camera-visible world rectangle, used to place replenished rocks off-screen. */
+export interface ViewBounds {
+  centerX: number
+  centerY: number
+  halfW: number
+  halfH: number
+}
+
+/**
+ * Spawn a single asteroid just outside the camera view, drifting roughly
+ * inward so it enters play. Used for endless-mode field replenishment.
+ *
+ * @param view - Camera-visible world rectangle
+ * @param id - Unique id for the new asteroid
+ * @param rand - Random source (defaults to Math.random)
+ */
+export function spawnEdgeAsteroid(
+  view: ViewBounds,
+  id: string,
+  rand: () => number = Math.random,
+): Asteroid {
+  const typeIdx = pickWeighted(TYPE_WEIGHTS, rand)
+  const type = TYPE_WEIGHTS[typeIdx].type
+  const sizeIdx = pickWeighted(SIZE_WEIGHTS, rand)
+  const size = SIZE_WEIGHTS[sizeIdx].size
+  const hp = HP_TABLE[type][size]
+
+  // Place on a ring that fully encloses the viewport so it spawns off-screen.
+  const ringRadius = Math.hypot(view.halfW, view.halfH) + 15 + rand() * 30
+  const angle = rand() * Math.PI * 2
+  const x = view.centerX + Math.cos(angle) * ringRadius
+  const y = view.centerY + Math.sin(angle) * ringRadius
+
+  // Drift generally toward the viewport centre, with some spread.
+  const inward = Math.atan2(view.centerY - y, view.centerX - x)
+  const drift = inward + (rand() - 0.5) * 1.4
+  const driftSpeed = 2 + rand() * MAX_DRIFT_SPEED
+
+  return {
+    id,
+    x,
+    y,
+    velocityX: Math.cos(drift) * driftSpeed,
+    velocityY: Math.sin(drift) * driftSpeed,
+    type,
+    hp,
+    maxHp: hp,
+    size,
+  }
+}
+
 /** Prologue-specific size weights: biased toward large asteroids (moons are spawned explicitly). */
 const PROLOGUE_SIZE_WEIGHTS: { size: number; weight: number }[] = [
   { size: 1, weight: 50 },

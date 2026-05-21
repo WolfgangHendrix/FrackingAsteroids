@@ -98,6 +98,8 @@ export interface EnemyShip {
   hp: number
   maxHp: number
   alive: boolean
+  /** Damage dealt by this enemy's projectiles when they hit the player. */
+  projectileDamage: number
   /** Current heading angle (radians) — smoothly steered toward desired. */
   heading: number
   /** Timer for switching strafe direction (CW vs CCW). */
@@ -122,6 +124,8 @@ export interface EnemyProjectile {
   vx: number
   vy: number
   elapsed: number
+  /** Damage dealt to the player on hit. */
+  damage: number
 }
 
 export interface ShipwreckDebris {
@@ -220,8 +224,16 @@ function createEnemyProjectileModel(): THREE.Group {
 
 /**
  * Create an enemy ship at the given position.
+ *
+ * @param projectileDamage - Damage this enemy's shots deal to the player.
+ *   Defaults to the standard enemy value; the prologue ambush and endless
+ *   patrols pass their own scaled values.
  */
-export function createEnemyShip(x: number, y: number): EnemyShip {
+export function createEnemyShip(
+  x: number,
+  y: number,
+  projectileDamage: number = ENEMY_PROJECTILE_DAMAGE,
+): EnemyShip {
   const mesh = createEnemyShipModel()
   mesh.position.set(x, y, 0)
 
@@ -239,6 +251,7 @@ export function createEnemyShip(x: number, y: number): EnemyShip {
     hp: Math.ceil(ENEMY_MAX_HP / 2),
     maxHp: ENEMY_MAX_HP,
     alive: true,
+    projectileDamage,
     heading: Math.random() * Math.PI * 2,
     strafeTimer: ENEMY_STRAFE_CHANGE_INTERVAL * (0.5 + Math.random() * 0.5),
     strafeDir: Math.random() < 0.5 ? 1 : -1,
@@ -441,6 +454,7 @@ export function updateEnemyShip(
           enemy.y + ny * 4,
           nx * ENEMY_PROJECTILE_SPEED,
           ny * ENEMY_PROJECTILE_SPEED,
+          enemy.projectileDamage,
         )
         newProjectiles.push(proj)
       }
@@ -454,7 +468,17 @@ export function updateEnemyShip(
   return newProjectiles
 }
 
-function createEnemyProjectile(x: number, y: number, vx: number, vy: number): EnemyProjectile {
+/**
+ * Create a hostile projectile. Used by grunt enemies and the Arbiter alike;
+ * `damage` is carried per-projectile so each shooter scales independently.
+ */
+export function createEnemyProjectile(
+  x: number,
+  y: number,
+  vx: number,
+  vy: number,
+  damage: number,
+): EnemyProjectile {
   const mesh = createEnemyProjectileModel()
   mesh.position.set(x, y, 0)
   const angle = Math.atan2(vy, vx)
@@ -468,6 +492,7 @@ function createEnemyProjectile(x: number, y: number, vx: number, vy: number): En
     vx,
     vy,
     elapsed: 0,
+    damage,
   }
 }
 

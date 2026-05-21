@@ -36,6 +36,8 @@ import { disposeMetalChunk } from './metal-chunk'
 import type { MiningTool } from './types'
 import { tick, createTickState, PLAYER_MAX_HP, collectorRangeForTier } from './game-tick'
 import type { TickState, TickInput } from './game-tick'
+import { FIRST_PATROL_DELAY, ASTEROID_REPLENISH_INTERVAL } from './ledger-config'
+import type { ArbiterHudInfo } from './arbiter-comms'
 import { createCollectorVfx, updateCollectorVfx, disposeCollectorVfx } from './collector-vfx'
 import {
   resumeAudio,
@@ -127,6 +129,12 @@ export interface GameSceneOptions {
   onStationDriveThrough?: () => void
   onCrystallineDeflect?: () => void
   onToolChange?: (tool: MiningTool) => void
+  /** Endless mode — fired when the integer Ledger value changes. */
+  onLedgerChanged?: (ledger: number) => void
+  /** Endless mode — Arbiter boss HP/Mark for the HUD; null when none active. */
+  onArbiterChanged?: (info: ArbiterHudInfo | null) => void
+  /** Endless mode — Arbiter encounter lifecycle events for comms banners. */
+  onArbiterEvent?: (event: { type: 'arrives' | 'defeated' | 'withdrawn'; mark: number }) => void
   // Prologue callbacks
   onPrologueReady?: () => void
   onFieldCleared?: () => void
@@ -167,6 +175,9 @@ export function createGameScene(
   const onStationDriveThrough = options?.onStationDriveThrough
   const onCrystallineDeflect = options?.onCrystallineDeflect
   const onToolChange = options?.onToolChange
+  const onLedgerChanged = options?.onLedgerChanged
+  const onArbiterChanged = options?.onArbiterChanged
+  const onArbiterEvent = options?.onArbiterEvent
   const onPrologueReady = options?.onPrologueReady
   const onFieldCleared = options?.onFieldCleared
   const onArbiterArrived = options?.onArbiterArrived
@@ -510,6 +521,8 @@ export function createGameScene(
   let prevTime = performance.now()
   let animId = 0
   let wasPaused = false
+  let prevLedgerInt = -1
+  let prevArbiterKey = ''
 
   function loop(): void {
     animId = requestAnimationFrame(loop)
@@ -684,6 +697,26 @@ export function createGameScene(
         }
       }
 
+      // Endless mode: replenished asteroid models
+      for (const a of result.newAsteroids) {
+        const model = createAsteroidModel(a.type, a.size, hashString(a.id))
+        model.position.set(a.x, a.y, 0)
+        scene.add(model)
+        const hm = createHealthMeter()
+        model.add(hm)
+        asteroidModels.set(a.id, { model, healthMeter: hm })
+      }
+
+      // Endless mode: dispose destroyed/culled asteroid models
+      for (const id of result.expiredAsteroidIds) {
+        const entry = asteroidModels.get(id)
+        if (entry) {
+          scene.remove(entry.model)
+          entry.model.traverse(disposeMesh)
+          asteroidModels.delete(id)
+        }
+      }
+
       // New metal chunk models
       for (const metal of result.newMetalChunks) {
         scene.add(metal.mesh)
@@ -697,6 +730,16 @@ export function createGameScene(
           mesh.traverse(disposeMesh)
         }
         playCollectPling()
+      }
+
+      // Add meshes for scrap boxes spawned this tick (enemy / patrol drops).
+      // Replaces the old "last box" heuristic, which dropped boxes whenever
+      // several enemies died on the same tick.
+      for (const sb of tickState.scrapBoxes) {
+        if (!scrapMeshMap.has(sb.id)) {
+          scene.add(sb.mesh)
+          scrapMeshMap.set(sb.id, sb.mesh)
+        }
       }
 
       // Scrap collected — remove meshes from scene
@@ -747,27 +790,29 @@ export function createGameScene(
         playPlayerHit()
       }
 
-      // Enemy destroyed — remove mesh and spawn VFX
-      if (result.enemyDestroyed && enemyBeforeTick) {
+      // Single (tutorial) enemy destroyed — remove mesh and spawn VFX.
+      // Detected by "existed before the tick, now gone" so a patrol enemy
+      // dying the same tick (which also sets result.enemyDestroyed) can't
+      // wrongly dispose a still-alive tutorial enemy.
+      if (enemyBeforeTick && !tickState.enemy) {
         scene.remove(enemyBeforeTick.mesh)
         disposeEnemyShip(enemyBeforeTick)
-        const wreck = createShipwreckDebris(result.enemyDestroyed.x, result.enemyDestroyed.y)
+        const wreck = createShipwreckDebris(enemyBeforeTick.x, enemyBeforeTick.y)
         scene.add(wreck.group)
         shipwreckDebrisList.push(wreck)
 
-        const bigExplosion = createExplosion(result.enemyDestroyed.x, result.enemyDestroyed.y)
+        const bigExplosion = createExplosion(enemyBeforeTick.x, enemyBeforeTick.y)
         scene.add(bigExplosion.group)
         explosions.push(bigExplosion)
         playExplosion()
-
-        // Scrap box mesh was created by tick via createScrapBox
-        const lastBox = tickState.scrapBoxes[tickState.scrapBoxes.length - 1]
-        if (lastBox) scene.add(lastBox.mesh)
       }
 
-      // Ambush enemies — add meshes for newly spawned
+      // Ambush / patrol enemies — add meshes + health meters for newly spawned
       for (const ae of result.ambushEnemiesSpawned) {
         scene.add(ae.mesh)
+        const hm = createHealthMeter()
+        ae.mesh.add(hm)
+        ae.mesh.userData.healthMeter = hm
       }
 
       // Ambush enemies destroyed — remove mesh, spawn explosion + wreckage
@@ -783,10 +828,6 @@ export function createGameScene(
         scene.add(bigExplosion.group)
         explosions.push(bigExplosion)
         playExplosion()
-
-        // Scrap box mesh was created by tick
-        const lastBox = tickState.scrapBoxes[tickState.scrapBoxes.length - 1]
-        if (lastBox) scene.add(lastBox.mesh)
       }
 
       // Update ambush enemy mesh positions (alive only)
@@ -822,16 +863,67 @@ export function createGameScene(
       if (result.arbiterArrived) onArbiterArrived?.()
       if (result.stripComplete) onStripComplete?.()
 
-      // --- Arbiter visual management ---
-      // Spawn arbiter model when prologueArbiterSpawned becomes true
-      if (tickState.prologueArbiterSpawned && !arbiterModel) {
-        arbiterModel = createArbiterModel()
-        scene.add(arbiterModel)
+      // --- Endless mode: push the Ledger to the HUD when its integer changes ---
+      const ledgerInt = Math.floor(result.ledger)
+      if (ledgerInt !== prevLedgerInt) {
+        prevLedgerInt = ledgerInt
+        onLedgerChanged?.(ledgerInt)
       }
 
-      // Position arbiter based on TickState distance (game-tick drives approach)
+      // --- Arbiter visual management (prologue intro OR endless boss) ---
+      const wantArbiter = tickState.prologueArbiterSpawned || tickState.arbiter !== null
+      if (wantArbiter && !arbiterModel) {
+        arbiterModel = createArbiterModel()
+        scene.add(arbiterModel)
+      } else if (!wantArbiter && arbiterModel) {
+        scene.remove(arbiterModel)
+        arbiterModel.traverse(disposeMesh)
+        arbiterModel = null
+      }
       if (arbiterModel) {
-        arbiterModel.position.set(ship.x, ship.y + tickState.prologueArbiterDistance, 0)
+        if (tickState.arbiter) {
+          arbiterModel.position.set(tickState.arbiter.x, tickState.arbiter.y, 0)
+          arbiterModel.rotation.z = tickState.arbiter.rotation
+        } else {
+          // Prologue: game-tick drives the scripted approach distance.
+          arbiterModel.position.set(ship.x, ship.y + tickState.prologueArbiterDistance, 0)
+        }
+      }
+
+      // --- Arbiter encounter events ---
+      if (result.arbiterSpawned) {
+        addTrauma(screenShake, 0.6)
+        onArbiterEvent?.({ type: 'arrives', mark: result.arbiterSpawned.mark })
+      }
+      if (result.arbiterDefeated) {
+        const { x, y, mark } = result.arbiterDefeated
+        addTrauma(screenShake, 1.0)
+        for (let i = 0; i < 6; i++) {
+          const boom = createExplosion(
+            x + (Math.random() - 0.5) * 24,
+            y + (Math.random() - 0.5) * 24,
+          )
+          scene.add(boom.group)
+          explosions.push(boom)
+        }
+        const wreck = createShipwreckDebris(x, y)
+        scene.add(wreck.group)
+        shipwreckDebrisList.push(wreck)
+        playExplosion()
+        onArbiterEvent?.({ type: 'defeated', mark })
+      }
+      if (result.arbiterWithdrawn) {
+        onArbiterEvent?.({ type: 'withdrawn', mark: result.arbiterWithdrawn.mark })
+      }
+
+      // --- Arbiter HUD sync (only when Mark / hull / phase changes) ---
+      const arb = tickState.arbiter
+      const arbiterKey = arb ? `${arb.mark}:${Math.ceil(arb.hp)}:${arb.phase}` : 'none'
+      if (arbiterKey !== prevArbiterKey) {
+        prevArbiterKey = arbiterKey
+        onArbiterChanged?.(
+          arb ? { mark: arb.mark, hp: arb.hp, maxHp: arb.maxHp, phase: arb.phase } : null,
+        )
       }
 
       // Strip modules during prologue-strip
@@ -862,6 +954,13 @@ export function createGameScene(
         if (ehm) {
           updateHealthMeter(ehm, tickState.enemy.hp, tickState.enemy.maxHp)
         }
+      }
+
+      // --- Update ambush / patrol enemy health meters ---
+      for (const ae of tickState.ambushEnemies) {
+        if (!ae.alive) continue
+        const ahm = ae.mesh.userData.healthMeter as THREE.Group | undefined
+        if (ahm) updateHealthMeter(ahm, ae.hp, ae.maxHp)
       }
 
       // --- Update Shipwreck Debris ---
@@ -1024,8 +1123,13 @@ export function createGameScene(
       // Wails throughout the prologue-arbiter beat, rising as it closes in.
       if (currentStep === 'prologue-arbiter') {
         startArbiterSiren()
-        const proximity = 1 - tickState.prologueArbiterDistance / ARBITER_SPAWN_DISTANCE
-        updateArbiterSiren(proximity)
+        updateArbiterSiren(1 - tickState.prologueArbiterDistance / ARBITER_SPAWN_DISTANCE)
+      } else if (tickState.arbiter && tickState.arbiter.mode === 'hunting') {
+        startArbiterSiren()
+        const adx = tickState.arbiter.x - ship.x
+        const ady = tickState.arbiter.y - ship.y
+        const adist = Math.sqrt(adx * adx + ady * ady)
+        updateArbiterSiren(Math.max(0.15, Math.min(1, 1 - adist / 220)))
       } else {
         stopArbiterSiren()
       }
@@ -1212,6 +1316,18 @@ export function createGameScene(
     tickState.enemySpawned = false
     tickState.enemyNearbyFired = false
     tickState.firstMetalCollectedTime = null
+
+    // Reset endless-mode state — resetShipToStation marks the start of the run.
+    tickState.ledger = 0
+    tickState.patrolTimer = FIRST_PATROL_DELAY
+    tickState.asteroidRespawnTimer = ASTEROID_REPLENISH_INTERVAL
+    tickState.asteroidSpawnCounter = 1
+    tickState.arbiter = null
+    tickState.arbiterMark = 0
+    prevLedgerInt = -1
+    prevArbiterKey = ''
+    onLedgerChanged?.(0)
+    onArbiterChanged?.(null)
 
     // Swap ship model to normal variant
     scene.remove(shipModel)

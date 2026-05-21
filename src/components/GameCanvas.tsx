@@ -4,6 +4,10 @@ import { useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 
 import type { GameScene, MetalVariant } from '@/game/scene'
 import type { TutorialStep } from '@/hooks/useTutorial'
 import type { MiningTool } from '@/game/types'
+import type { ArbiterHudInfo } from '@/game/arbiter-comms'
+
+/** Arbiter encounter lifecycle event surfaced to React for comms banners. */
+export type ArbiterEvent = { type: 'arrives' | 'defeated' | 'withdrawn'; mark: number }
 
 export interface GameCanvasHandle {
   setFireRateBonus: (multiplier: number) => void
@@ -31,6 +35,9 @@ interface GameCanvasProps {
   onStationDriveThrough?: () => void
   onCrystallineDeflect?: () => void
   onToolChange?: (tool: MiningTool) => void
+  onLedgerChanged?: (ledger: number) => void
+  onArbiterChanged?: (info: ArbiterHudInfo | null) => void
+  onArbiterEvent?: (event: ArbiterEvent) => void
   // Prologue callbacks
   onPrologueReady?: () => void
   onFieldCleared?: () => void
@@ -58,6 +65,9 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
     onStationDriveThrough,
     onCrystallineDeflect,
     onToolChange,
+    onLedgerChanged,
+    onArbiterChanged,
+    onArbiterEvent,
     onPrologueReady,
     onFieldCleared,
     onArbiterArrived,
@@ -85,6 +95,9 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
   const onStationDriveThroughRef = useRef(onStationDriveThrough)
   const onCrystallineDeflectRef = useRef(onCrystallineDeflect)
   const onToolChangeRef = useRef(onToolChange)
+  const onLedgerChangedRef = useRef(onLedgerChanged)
+  const onArbiterChangedRef = useRef(onArbiterChanged)
+  const onArbiterEventRef = useRef(onArbiterEvent)
   const onPrologueReadyRef = useRef(onPrologueReady)
   const onFieldClearedRef = useRef(onFieldCleared)
   const onArbiterArrivedRef = useRef(onArbiterArrived)
@@ -179,6 +192,18 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
   }, [onToolChange])
 
   useEffect(() => {
+    onLedgerChangedRef.current = onLedgerChanged
+  }, [onLedgerChanged])
+
+  useEffect(() => {
+    onArbiterChangedRef.current = onArbiterChanged
+  }, [onArbiterChanged])
+
+  useEffect(() => {
+    onArbiterEventRef.current = onArbiterEvent
+  }, [onArbiterEvent])
+
+  useEffect(() => {
     onPrologueReadyRef.current = onPrologueReady
   }, [onPrologueReady])
 
@@ -221,6 +246,9 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
           onStationDriveThrough: () => onStationDriveThroughRef.current?.(),
           onCrystallineDeflect: () => onCrystallineDeflectRef.current?.(),
           onToolChange: (tool: MiningTool) => onToolChangeRef.current?.(tool),
+          onLedgerChanged: (ledger: number) => onLedgerChangedRef.current?.(ledger),
+          onArbiterChanged: (info: ArbiterHudInfo | null) => onArbiterChangedRef.current?.(info),
+          onArbiterEvent: (event: ArbiterEvent) => onArbiterEventRef.current?.(event),
           onPrologueReady: () => onPrologueReadyRef.current?.(),
           onFieldCleared: () => onFieldClearedRef.current?.(),
           onArbiterArrived: () => onArbiterArrivedRef.current?.(),

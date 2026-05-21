@@ -2,8 +2,12 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { GameCanvas } from '@/components/GameCanvas'
-import type { GameCanvasHandle } from '@/components/GameCanvas'
+import type { GameCanvasHandle, ArbiterEvent } from '@/components/GameCanvas'
 import { HUD } from '@/components/HUD'
+import { ArbiterBanner } from '@/components/ArbiterBanner'
+import type { ArbiterBannerData } from '@/components/ArbiterBanner'
+import type { ArbiterHudInfo } from '@/game/arbiter-comms'
+import { arbiterArrivalLine, arbiterDefeatLine, arbiterWithdrawLine } from '@/game/arbiter-comms'
 import { SoundFab } from '@/components/SoundFab'
 import { StartScreen } from '@/components/StartScreen'
 import { TutorialOverlay } from '@/components/TutorialOverlay'
@@ -33,6 +37,9 @@ export default function Home() {
   const [activeTool, setActiveTool] = useState<MiningTool>('blaster')
   const [hasLazer, setHasLazer] = useState(false)
   const [lazerPopupVisible, setLazerPopupVisible] = useState(false)
+  const [ledger, setLedger] = useState(0)
+  const [arbiterHud, setArbiterHud] = useState<ArbiterHudInfo | null>(null)
+  const [arbiterBanner, setArbiterBanner] = useState<ArbiterBannerData | null>(null)
   const gameCanvasRef = useRef<GameCanvasHandle>(null)
   const {
     paused,
@@ -188,6 +195,16 @@ export default function Home() {
 
   const handleToolChange = useCallback((tool: MiningTool) => {
     setActiveTool(tool)
+  }, [])
+
+  const handleArbiterEvent = useCallback((event: ArbiterEvent) => {
+    const text =
+      event.type === 'arrives'
+        ? arbiterArrivalLine(event.mark)
+        : event.type === 'defeated'
+          ? arbiterDefeatLine(event.mark)
+          : arbiterWithdrawLine(event.mark)
+    setArbiterBanner({ text, key: Date.now() })
   }, [])
 
   const handleCrystallineDeflect = useCallback(() => {
@@ -351,6 +368,9 @@ export default function Home() {
         onStationDriveThrough={handleStationDriveThrough}
         onCrystallineDeflect={handleCrystallineDeflect}
         onToolChange={handleToolChange}
+        onLedgerChanged={setLedger}
+        onArbiterChanged={setArbiterHud}
+        onArbiterEvent={handleArbiterEvent}
         onPrologueReady={tutorial.onPrologueReady}
         onFieldCleared={tutorial.onFieldCleared}
         onArbiterArrived={tutorial.onArbiterArrived}
@@ -365,8 +385,11 @@ export default function Home() {
         paused={paused}
         activeTool={activeTool}
         hasLazer={hasLazer}
+        ledger={ledger}
+        arbiter={arbiterHud}
         onPause={togglePause}
       />
+      {!inPrologue && <ArbiterBanner banner={arbiterBanner} />}
       {tutorial.active && inPrologue && (
         <PrologueOverlay
           step={tutorial.step}

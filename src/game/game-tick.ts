@@ -53,10 +53,32 @@ import {
   updateEnemyProjectile,
   ENEMY_COLLISION_RADIUS,
   ENEMY_SPAWN_DISTANCE,
-  ENEMY_PROJECTILE_DAMAGE,
 } from './enemy-ship'
 import { createScrapBox, updateScrapBox, attractScrapBoxToShip, SCRAP_BOX_VALUE } from './scrap-box'
 import { HITS_PER_BREAK } from './asteroid-debris'
+import { spawnEdgeAsteroid } from './asteroid-spawner'
+import {
+  LEDGER_PER_ASTEROID,
+  LEDGER_PER_METAL,
+  patrolInterval,
+  patrolSize,
+  patrolEnemyDamage,
+  MAX_PATROL_ENEMIES,
+  FIRST_PATROL_DELAY,
+  ASTEROID_FLOOR,
+  ASTEROID_REPLENISH_BATCH,
+  ASTEROID_REPLENISH_INTERVAL,
+  arbiterThreshold,
+  ARBITER_DEFEAT_LEDGER_FACTOR,
+  ARBITER_EVADE_LEDGER_RELIEF,
+} from './ledger-config'
+import {
+  createArbiterState,
+  updateArbiter,
+  checkProjectileArbiterCollisions,
+  checkBeamArbiterCollisions,
+} from './arbiter'
+import type { ArbiterState } from './arbiter'
 import {
   PROLOGUE_SHIP,
   PROLOGUE_ENEMY_FLEET_SIZE,
@@ -138,6 +160,20 @@ export interface TickState {
   stationY: number
 
   elapsedTime: number
+
+  // --- Endless mode (active once tutorialStep === 'done') ---
+  /** The Ledger — escalation meter driving patrol cadence and difficulty. */
+  ledger: number
+  /** Countdown (seconds) to the next enemy patrol spawn. */
+  patrolTimer: number
+  /** Countdown (seconds) to the next asteroid replenishment pulse. */
+  asteroidRespawnTimer: number
+  /** Monotonic counter for unique replenished-asteroid ids. */
+  asteroidSpawnCounter: number
+  /** The active Arbiter boss, or null when no encounter is underway. */
+  arbiter: ArbiterState | null
+  /** Number of Arbiter encounters started so far (the current/last Mark). */
+  arbiterMark: number
 
   // Prologue
   prologueFieldSpawned: boolean
@@ -222,6 +258,21 @@ export interface TickResult {
   stripAdvanced: boolean
   stripComplete: boolean
   prologuePlayerKilled: boolean
+  // Endless mode
+  /** Current Ledger value (always set, even outside endless mode). */
+  ledger: number
+  /** Asteroids spawned this tick by field replenishment. */
+  newAsteroids: Asteroid[]
+  /** Ids of asteroids removed this tick (destroyed or culled far off-screen). */
+  expiredAsteroidIds: string[]
+  /** Set the tick an Arbiter encounter begins. */
+  arbiterSpawned: { mark: number } | null
+  /** Set the tick the Arbiter is destroyed by the player. */
+  arbiterDefeated: { x: number; y: number; mark: number } | null
+  /** Set the tick the Arbiter gives up and withdraws. */
+  arbiterWithdrawn: { mark: number } | null
+  /** True on any tick the player damaged the Arbiter. */
+  arbiterHit: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -299,6 +350,13 @@ export function createTickState(config?: TickStateConfig): TickState {
 
     elapsedTime: 0,
 
+    ledger: 0,
+    patrolTimer: FIRST_PATROL_DELAY,
+    asteroidRespawnTimer: ASTEROID_REPLENISH_INTERVAL,
+    asteroidSpawnCounter: 1,
+    arbiter: null,
+    arbiterMark: 0,
+
     prologueFieldSpawned: false,
     prologueAsteroidsDestroyed: 0,
     prologueEnemiesSpawned: false,
@@ -358,6 +416,13 @@ function emptyResult(): TickResult {
     stripAdvanced: false,
     stripComplete: false,
     prologuePlayerKilled: false,
+    ledger: 0,
+    newAsteroids: [],
+    expiredAsteroidIds: [],
+    arbiterSpawned: null,
+    arbiterDefeated: null,
+    arbiterWithdrawn: null,
+    arbiterHit: false,
   }
 }
 
@@ -496,7 +561,7 @@ function prologueTick(state: TickState, input: TickInput, result: TickResult): v
         const dist = ENEMY_SPAWN_DISTANCE
         const ex = state.ship.x + Math.cos(angle) * dist
         const ey = state.ship.y + Math.sin(angle) * dist
-        const enemy = createEnemyShip(ex, ey)
+        const enemy = createEnemyShip(ex, ey, AMBUSH_PROJECTILE_DAMAGE)
         state.ambushEnemies.push(enemy)
         result.ambushEnemiesSpawned.push(enemy)
       }
@@ -624,6 +689,13 @@ export function tick(state: TickState, input: TickInput): TickResult {
   // pickup range varies, driven by the Collector upgrade tier.
   const collecting = true
   void input.collecting
+
+  // --- Endless mode: active once the tutorial is complete. Snapshot which
+  // asteroids are alive now so updateEndlessMode() can count kills this tick. ---
+  const endlessActive = input.tutorialStep === 'done'
+  const asteroidsAliveBefore: Set<string> | null = endlessActive
+    ? new Set(state.asteroids.filter((a) => a.hp > 0).map((a) => a.id))
+    : null
 
   // --- Ship update ---
   // The hull always faces its direction of travel (handled inside updateShip)
@@ -819,6 +891,25 @@ export function tick(state: TickState, input: TickInput): TickResult {
         }
       }
 
+      // --- Beam vs Arbiter — truncate the beam to the boss if it reaches ---
+      if (state.arbiter) {
+        const ab = checkBeamArbiterCollisions(
+          state.ship.x,
+          state.ship.y,
+          result.beamEndX,
+          result.beamEndY,
+          frameDamage,
+          state.arbiter,
+        )
+        if (ab.hit) {
+          result.arbiterHit = true
+          const bx = result.beamEndX - state.ship.x
+          const by = result.beamEndY - state.ship.y
+          result.beamEndX = state.ship.x + bx * ab.t
+          result.beamEndY = state.ship.y + by * ab.t
+        }
+      }
+
       // Process beam hits for events and metal spawning
       for (const hit of beamResult.hits) {
         if (hit.deflected) {
@@ -927,7 +1018,9 @@ export function tick(state: TickState, input: TickInput): TickResult {
   }
 
   // --- Enemy spawn (after first metal collected) ---
-  if (!state.enemySpawned && state.firstMetalCollectedTime !== null) {
+  // Tutorial-only scripted enemy. In endless mode the director owns all
+  // enemy spawning, so this single-shot spawn is suppressed.
+  if (!endlessActive && !state.enemySpawned && state.firstMetalCollectedTime !== null) {
     state.enemySpawned = true
     const spawnAngle = Math.random() * Math.PI * 2
     const ex = state.ship.x + Math.cos(spawnAngle) * ENEMY_SPAWN_DISTANCE
@@ -990,8 +1083,7 @@ export function tick(state: TickState, input: TickInput): TickResult {
       for (let i = state.enemyProjectiles.length - 1; i >= 0; i--) {
         const proj = state.enemyProjectiles[i]
         if (!hitIds.has(proj.id)) continue
-        const damage =
-          proj.mesh.userData['ambush'] === true ? AMBUSH_PROJECTILE_DAMAGE : ENEMY_PROJECTILE_DAMAGE
+        const damage = proj.damage
         state.playerHp = Math.max(0, state.playerHp - damage)
         result.enemyProjectileHits.push({ id: proj.id, x: proj.x, y: proj.y, damage })
         state.enemyProjectiles.splice(i, 1)
@@ -1089,11 +1181,12 @@ export function tick(state: TickState, input: TickInput): TickResult {
     for (const ae of state.ambushEnemies) {
       if (!ae.alive) continue
       const newProjs = updateEnemyShip(ae, state.ship, dt, state.asteroids)
-      if (ae.shootTimer > AMBUSH_SHOOT_MAX) {
+      // Prologue ambush enemies fire a frantic barrage; endless patrols keep
+      // the normal enemy cadence set inside updateEnemyShip().
+      if (isPrologue && ae.shootTimer > AMBUSH_SHOOT_MAX) {
         ae.shootTimer = AMBUSH_SHOOT_MIN + Math.random() * (AMBUSH_SHOOT_MAX - AMBUSH_SHOOT_MIN)
       }
       for (const proj of newProjs) {
-        proj.mesh.userData['ambush'] = true
         state.enemyProjectiles.push(proj)
         result.newEnemyProjectiles.push(proj)
       }
@@ -1124,5 +1217,176 @@ export function tick(state: TickState, input: TickInput): TickResult {
     }
   }
 
+  // --- Endless mode: the Ledger, field replenishment, enemy director ---
+  if (endlessActive && asteroidsAliveBefore) {
+    updateEndlessMode(state, input, result, asteroidsAliveBefore)
+  }
+  result.ledger = state.ledger
+
   return result
+}
+
+// ---------------------------------------------------------------------------
+// Endless mode
+// ---------------------------------------------------------------------------
+
+/**
+ * Endless-mode systems, run once per tick after the tutorial completes:
+ *
+ *  - The Ledger rises as the player destroys asteroids and hauls metal.
+ *  - The asteroid field is culled of dead/far rocks and replenished around
+ *    the player so the belt never runs dry.
+ *  - An enemy director spawns escalating patrols on a Ledger-driven cadence.
+ *
+ * Endless patrol enemies share the `ambushEnemies` pool (already wired for
+ * multi-enemy combat, beam hits, radar, and aim targeting); dead ones are
+ * pruned here so the pool stays bounded over a long run.
+ */
+function updateEndlessMode(
+  state: TickState,
+  input: TickInput,
+  result: TickResult,
+  asteroidsAliveBefore: Set<string>,
+): void {
+  const { dt } = input
+
+  // --- The Ledger rises with extraction ---
+  let destroyed = 0
+  for (const a of state.asteroids) {
+    if (a.hp <= 0 && asteroidsAliveBefore.has(a.id)) destroyed++
+  }
+  state.ledger += destroyed * LEDGER_PER_ASTEROID
+  state.ledger += result.metalCollected.length * LEDGER_PER_METAL
+
+  // --- Cull destroyed rocks and ones the player has long since left behind ---
+  const viewDiag = Math.hypot(input.viewBounds.halfW, input.viewBounds.halfH)
+  const cullRadiusSq = (viewDiag * 3.5) ** 2
+  for (let i = state.asteroids.length - 1; i >= 0; i--) {
+    const a = state.asteroids[i]
+    const dx = a.x - state.ship.x
+    const dy = a.y - state.ship.y
+    if (a.hp <= 0 || dx * dx + dy * dy > cullRadiusSq) {
+      result.expiredAsteroidIds.push(a.id)
+      state.asteroids.splice(i, 1)
+      state.asteroidHitCounts.delete(a.id)
+    }
+  }
+
+  // --- Replenish the field when it thins out around the player ---
+  const localRadiusSq = (viewDiag * 2.2) ** 2
+  let localCount = 0
+  for (const a of state.asteroids) {
+    const dx = a.x - state.ship.x
+    const dy = a.y - state.ship.y
+    if (dx * dx + dy * dy < localRadiusSq) localCount++
+  }
+  if (localCount < ASTEROID_FLOOR) {
+    state.asteroidRespawnTimer -= dt
+    if (state.asteroidRespawnTimer <= 0) {
+      state.asteroidRespawnTimer = ASTEROID_REPLENISH_INTERVAL
+      const batch = Math.min(ASTEROID_REPLENISH_BATCH, ASTEROID_FLOOR - localCount)
+      for (let i = 0; i < batch; i++) {
+        const a = spawnEdgeAsteroid(input.viewBounds, `asteroid-r${state.asteroidSpawnCounter++}`)
+        state.asteroids.push(a)
+        state.asteroidHitCounts.set(a.id, 0)
+        result.newAsteroids.push(a)
+      }
+    }
+  } else {
+    state.asteroidRespawnTimer = ASTEROID_REPLENISH_INTERVAL
+  }
+
+  // --- The Arbiter — recurring boss encounter ---
+  if (state.arbiter) {
+    const arb = state.arbiter
+
+    // Player projectiles vs the Arbiter
+    if (state.projectiles.length > 0) {
+      const { surviving, hitProjectileIds } = checkProjectileArbiterCollisions(
+        state.projectiles,
+        arb,
+      )
+      for (const id of hitProjectileIds) {
+        state.projectileElapsed.delete(id)
+        result.expiredProjectileIds.push(id)
+      }
+      state.projectiles = surviving
+      if (hitProjectileIds.length > 0) result.arbiterHit = true
+    }
+
+    if (arb.hp <= 0) {
+      // Destroyed — a big scrap payout and hard Ledger relief.
+      const boxCount = 4 + arb.mark
+      for (let i = 0; i < boxCount; i++) {
+        const a = (i / boxCount) * Math.PI * 2 + Math.random() * 0.5
+        const r = 5 + Math.random() * 8
+        state.scrapBoxes.push(createScrapBox(arb.x + Math.cos(a) * r, arb.y + Math.sin(a) * r))
+      }
+      state.ledger = Math.max(0, state.ledger * ARBITER_DEFEAT_LEDGER_FACTOR)
+      result.arbiterDefeated = { x: arb.x, y: arb.y, mark: arb.mark }
+      state.arbiter = null
+    } else {
+      // Still in the fight — move, fire volleys, call reinforcements.
+      const upd = updateArbiter(arb, state.ship, dt)
+      for (const p of upd.projectiles) {
+        state.enemyProjectiles.push(p)
+        result.newEnemyProjectiles.push(p)
+      }
+      if (upd.reinforcements > 0) {
+        spawnPatrol(state, result, upd.reinforcements, viewDiag)
+      }
+      if (upd.finishedWithdrawing) {
+        state.ledger = Math.max(0, state.ledger - ARBITER_EVADE_LEDGER_RELIEF)
+        result.arbiterWithdrawn = { mark: arb.mark }
+        state.arbiter = null
+      }
+    }
+  } else if (state.ledger >= arbiterThreshold(state.arbiterMark + 1)) {
+    // The Ledger crossed the next threshold — summon the next Arbiter Mark.
+    state.arbiterMark++
+    const angle = Math.random() * Math.PI * 2
+    const r = viewDiag + 45
+    state.arbiter = createArbiterState(
+      state.arbiterMark,
+      state.ship.x + Math.cos(angle) * r,
+      state.ship.y + Math.sin(angle) * r,
+    )
+    result.arbiterSpawned = { mark: state.arbiterMark }
+  }
+
+  // --- Enemy director: escalating patrols (paused while the Arbiter is here) ---
+  if (!state.arbiter) {
+    state.patrolTimer -= dt
+    if (state.patrolTimer <= 0) {
+      state.patrolTimer = patrolInterval(state.ledger)
+      spawnPatrol(state, result, patrolSize(state.ledger), viewDiag)
+    }
+  }
+
+  // --- Prune destroyed enemies so the pool never grows unbounded ---
+  if (state.ambushEnemies.some((e) => !e.alive)) {
+    state.ambushEnemies = state.ambushEnemies.filter((e) => e.alive)
+  }
+}
+
+/** Spawn up to `requested` patrol enemies off-screen around the player. */
+function spawnPatrol(
+  state: TickState,
+  result: TickResult,
+  requested: number,
+  viewDiag: number,
+): void {
+  const aliveEnemies = state.ambushEnemies.reduce((n, e) => n + (e.alive ? 1 : 0), 0)
+  const count = Math.min(requested, MAX_PATROL_ENEMIES - aliveEnemies)
+  if (count <= 0) return
+  const damage = patrolEnemyDamage(state.ledger)
+  const ringRadius = viewDiag + 25
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2
+    const ex = state.ship.x + Math.cos(angle) * ringRadius
+    const ey = state.ship.y + Math.sin(angle) * ringRadius
+    const enemy = createEnemyShip(ex, ey, damage)
+    state.ambushEnemies.push(enemy)
+    result.ambushEnemiesSpawned.push(enemy)
+  }
 }

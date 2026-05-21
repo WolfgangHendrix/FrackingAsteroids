@@ -2,6 +2,9 @@
 
 import type { Cargo, Upgrades } from '@/lib/schemas'
 import type { MiningTool } from '@/game/types'
+import { ledgerStatus } from '@/game/ledger-config'
+import { romanNumeral } from '@/game/arbiter-comms'
+import type { ArbiterHudInfo } from '@/game/arbiter-comms'
 
 interface HUDProps {
   scrap: number
@@ -12,6 +15,10 @@ interface HUDProps {
   paused: boolean
   activeTool: MiningTool
   hasLazer: boolean
+  /** Endless-mode escalation meter. 0 hides the readout (prologue/tutorial). */
+  ledger: number
+  /** Active Arbiter boss, or null. Replaces the Ledger readout when present. */
+  arbiter: ArbiterHudInfo | null
   onPause: () => void
 }
 
@@ -83,12 +90,17 @@ export function HUD({
   paused,
   activeTool,
   hasLazer,
+  ledger,
+  arbiter,
   onPause,
 }: HUDProps) {
   const cargoPercent = cargo.capacity > 0 ? Math.round((cargo.fragments / cargo.capacity) * 100) : 0
   const hpPercent = playerMaxHp > 0 ? Math.round((playerHp / playerMaxHp) * 100) : 100
   const hpColor = hpPercent > 50 ? '#00ff88' : hpPercent > 25 ? '#ffaa00' : '#ff4444'
   const showHealth = playerHp < playerMaxHp
+  const ledgerInfo = ledgerStatus(ledger)
+  const arbiterHpFrac = arbiter ? Math.max(0, Math.min(1, arbiter.hp / arbiter.maxHp)) : 0
+  const arbiterColor = arbiter && arbiter.phase >= 2 ? '#ff1a1a' : '#ff5555'
 
   return (
     <div className="absolute inset-0 pointer-events-none">
@@ -148,6 +160,60 @@ export function HUD({
           </button>
         </div>
       </div>
+
+      {/* The Arbiter \u2014 endless-mode boss bar (top-centre, takes priority) */}
+      {arbiter && (
+        <div
+          className="absolute top-2 sm:top-3 left-1/2 -translate-x-1/2 flex flex-col items-center gap-0.5"
+          data-testid="arbiter-bar"
+        >
+          <div
+            className="font-mono font-bold tracking-[0.18em] text-[clamp(0.6rem,1.7vw,0.85rem)]"
+            style={{ color: arbiterColor }}
+          >
+            \u2b22 THE ARBITER \u00b7 MARK {romanNumeral(arbiter.mark)} \u2b22
+          </div>
+          <div
+            className="w-44 sm:w-72 h-2 sm:h-3 rounded-sm overflow-hidden"
+            style={{ backgroundColor: '#1a0a0e', border: '1px solid rgba(255,80,80,0.35)' }}
+          >
+            <div
+              className="h-full transition-all duration-200"
+              style={{ width: `${arbiterHpFrac * 100}%`, backgroundColor: arbiterColor }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* The Ledger \u2014 endless-mode escalation meter (hidden during a boss fight) */}
+      {ledger > 0 && !arbiter && (
+        <div
+          className="absolute top-2 sm:top-3 left-1/2 -translate-x-1/2 flex flex-col items-center gap-0.5"
+          data-testid="ledger-meter"
+        >
+          <div className="font-mono tracking-[0.2em] text-white/45 text-[clamp(0.5rem,1.4vw,0.65rem)]">
+            THE LEDGER
+          </div>
+          <div
+            className="w-28 sm:w-40 h-1.5 sm:h-2 rounded-sm overflow-hidden"
+            style={{ backgroundColor: '#1a1a2e', border: '1px solid rgba(255,255,255,0.12)' }}
+          >
+            <div
+              className="h-full transition-all duration-500"
+              style={{
+                width: `${ledgerInfo.progress * 100}%`,
+                backgroundColor: ledgerInfo.color,
+              }}
+            />
+          </div>
+          <div
+            className="font-mono font-bold tracking-[0.15em] text-[clamp(0.6rem,1.7vw,0.8rem)]"
+            style={{ color: ledgerInfo.color }}
+          >
+            {ledgerInfo.label}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
