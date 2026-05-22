@@ -6,6 +6,7 @@ import type { TutorialStep } from '@/hooks/useTutorial'
 import type { MiningTool } from '@/game/types'
 import type { ArbiterHudInfo } from '@/game/arbiter-comms'
 import type { RunStats } from '@/game/ledger-config'
+import type { Upgrades } from '@/lib/schemas'
 
 /** Arbiter encounter lifecycle event surfaced to React for comms banners. */
 export type ArbiterEvent = { type: 'arrives' | 'defeated' | 'withdrawn'; mark: number }
@@ -15,6 +16,7 @@ export interface GameCanvasHandle {
   resetShipToStation: () => void
   setMiningTool: (tool: MiningTool) => void
   setCollectorTier: (tier: number) => void
+  setCombatUpgrades: (upgrades: Upgrades) => void
   respawnAfterDeath: () => void
 }
 
@@ -41,6 +43,7 @@ interface GameCanvasProps {
   onArbiterChanged?: (info: ArbiterHudInfo | null) => void
   onArbiterEvent?: (event: ArbiterEvent) => void
   onRunEnded?: (stats: RunStats) => void
+  onShieldChanged?: (charges: number) => void
   // Prologue callbacks
   onPrologueReady?: () => void
   onFieldCleared?: () => void
@@ -72,6 +75,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
     onArbiterChanged,
     onArbiterEvent,
     onRunEnded,
+    onShieldChanged,
     onPrologueReady,
     onFieldCleared,
     onArbiterArrived,
@@ -103,6 +107,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
   const onArbiterChangedRef = useRef(onArbiterChanged)
   const onArbiterEventRef = useRef(onArbiterEvent)
   const onRunEndedRef = useRef(onRunEnded)
+  const onShieldChangedRef = useRef(onShieldChanged)
   const onPrologueReadyRef = useRef(onPrologueReady)
   const onFieldClearedRef = useRef(onFieldCleared)
   const onArbiterArrivedRef = useRef(onArbiterArrived)
@@ -120,6 +125,9 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
     },
     setCollectorTier: (tier: number) => {
       sceneRef.current?.setCollectorTier(tier)
+    },
+    setCombatUpgrades: (upgrades: Upgrades) => {
+      sceneRef.current?.setCombatUpgrades(upgrades)
     },
     respawnAfterDeath: () => {
       sceneRef.current?.respawnAfterDeath()
@@ -216,6 +224,10 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
   }, [onRunEnded])
 
   useEffect(() => {
+    onShieldChangedRef.current = onShieldChanged
+  }, [onShieldChanged])
+
+  useEffect(() => {
     onPrologueReadyRef.current = onPrologueReady
   }, [onPrologueReady])
 
@@ -262,6 +274,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
           onArbiterChanged: (info: ArbiterHudInfo | null) => onArbiterChangedRef.current?.(info),
           onArbiterEvent: (event: ArbiterEvent) => onArbiterEventRef.current?.(event),
           onRunEnded: (stats: RunStats) => onRunEndedRef.current?.(stats),
+          onShieldChanged: (charges: number) => onShieldChangedRef.current?.(charges),
           onPrologueReady: () => onPrologueReadyRef.current?.(),
           onFieldCleared: () => onFieldClearedRef.current?.(),
           onArbiterArrived: () => onArbiterArrivedRef.current?.(),

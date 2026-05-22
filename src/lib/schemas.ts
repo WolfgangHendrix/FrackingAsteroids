@@ -13,6 +13,10 @@ export const UpgradesSchema = z.object({
   blaster: z.number().int().min(1).max(5),
   collector: z.number().int().min(1).max(5),
   storage: z.number().int().min(1).max(5),
+  missiles: z.number().int().min(0).max(8).default(0),
+  ripple: z.number().int().min(0).max(1).default(0),
+  options: z.number().int().min(0).max(2).default(0),
+  shield: z.number().int().min(0).max(3).default(0),
 })
 export type Upgrades = z.infer<typeof UpgradesSchema>
 
@@ -49,7 +53,15 @@ export type SaveSlotSummary = z.infer<typeof SaveSlotSummarySchema>
 export function defaultGameState(): GameState {
   return {
     ship: { x: 0, y: 0, rotation: 0, velocityX: 0, velocityY: 0 },
-    upgrades: { blaster: 1, collector: 1, storage: 1 },
+    upgrades: {
+      blaster: 1,
+      collector: 1,
+      storage: 1,
+      missiles: 0,
+      ripple: 0,
+      options: 0,
+      shield: 0,
+    },
     cargo: { scrap: 0, fragments: 0, silver: 0, gold: 0, capacity: 50 },
     hp: 100,
     highScore: 0,

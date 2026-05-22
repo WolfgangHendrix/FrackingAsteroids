@@ -16,6 +16,7 @@ import {
 } from './gas-station-model'
 import { createProjectileModel } from './projectile-model'
 import { createLazerBeam, updateLazerBeam, disposeLazerBeam } from './lazer-beam'
+import { createRippleBeam, updateRippleBeam, disposeRippleBeam } from './ripple-beam'
 import { createTractorBeam, updateTractorBeam, disposeTractorBeam } from './tractor-beam'
 import type { TractorBeam } from './tractor-beam'
 import { createInputState, createInputHandler, createAimState, createAimHandler } from './input'
@@ -92,9 +93,16 @@ import {
   updateShipwreckDebris,
   disposeShipwreckDebris,
 } from './enemy-ship'
-import type { ShipwreckDebris } from './enemy-ship'
+import type { EnemyShip, ShipwreckDebris } from './enemy-ship'
+import {
+  createEnemyDamageSparks,
+  updateEnemyDamageSparks,
+  disposeEnemyDamageSparks,
+} from './enemy-damage-vfx'
+import type { EnemyDamageSparks } from './enemy-damage-vfx'
 import { disposeScrapBox } from './scrap-box'
 import type { TutorialStep } from '@/hooks/useTutorial'
+import type { Upgrades } from '@/lib/schemas'
 
 function disposeMesh(obj: THREE.Object3D): void {
   if (obj instanceof THREE.Mesh) {
@@ -145,6 +153,7 @@ export interface GameSceneOptions {
   onArbiterEvent?: (event: { type: 'arrives' | 'defeated' | 'withdrawn'; mark: number }) => void
   /** Endless mode — fired once when the player's hull is lost. */
   onRunEnded?: (stats: RunStats) => void
+  onShieldChanged?: (charges: number) => void
   // Prologue callbacks
   onPrologueReady?: () => void
   onFieldCleared?: () => void
@@ -158,6 +167,7 @@ export interface GameScene {
   resetShipToStation: () => void
   setMiningTool: (tool: MiningTool) => void
   setCollectorTier: (tier: number) => void
+  setCombatUpgrades: (upgrades: Upgrades) => void
   respawnAfterDeath: () => void
 }
 
@@ -190,6 +200,7 @@ export function createGameScene(
   const onArbiterChanged = options?.onArbiterChanged
   const onArbiterEvent = options?.onArbiterEvent
   const onRunEnded = options?.onRunEnded
+  const onShieldChanged = options?.onShieldChanged
   const onPrologueReady = options?.onPrologueReady
   const onFieldCleared = options?.onFieldCleared
   const onArbiterArrived = options?.onArbiterArrived
@@ -238,6 +249,23 @@ export function createGameScene(
   let shipModel = createShipModel('prologue')
   scene.add(shipModel)
 
+  const optionOrbs = new THREE.Group()
+  scene.add(optionOrbs)
+  const shieldVisual = new THREE.Mesh(
+    new THREE.RingGeometry(8, 9.5, 48),
+    new THREE.MeshBasicMaterial({
+      color: 0x66ddff,
+      transparent: true,
+      opacity: 0.45,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+  )
+  shieldVisual.visible = false
+  shieldVisual.rotation.x = Math.PI / 2
+  scene.add(shieldVisual)
+
   // --- Arbiter (added to scene during prologue-arbiter step) ---
   let arbiterModel: THREE.Group | null = null
 
@@ -248,6 +276,8 @@ export function createGameScene(
   // --- Lazer Beam (persistent mesh, hidden when not firing) ---
   const lazerBeam = createLazerBeam()
   scene.add(lazerBeam)
+  const rippleBeam = createRippleBeam()
+  scene.add(rippleBeam)
 
   // --- Arbiter Tractor Beam (persistent mesh, hidden when not active) ---
   const tractorBeam: TractorBeam = createTractorBeam()
@@ -317,6 +347,10 @@ export function createGameScene(
     blasterTier: 5,
     miningTool: 'lazer',
     fireRateBonus: 1.1 ** 4,
+    missileTier: PROLOGUE_SHIP.missileTier,
+    rippleUnlocked: true,
+    optionCount: PROLOGUE_SHIP.optionCount,
+    shieldCharges: PROLOGUE_SHIP.shieldCharges,
   })
 
   // Create 3D models for prologue asteroids
@@ -337,6 +371,8 @@ export function createGameScene(
   const explosions: Explosion[] = []
   const debrisChunks: DebrisChunk[] = []
   const shipwreckDebrisList: ShipwreckDebris[] = []
+  const enemyDamageSparks: EnemyDamageSparks[] = []
+  const enemySparkCooldown = new WeakMap<EnemyShip, number>()
 
   // --- Collector VFX ---
   const collectorVfx = createCollectorVfx()
@@ -387,6 +423,7 @@ export function createGameScene(
   // Left stick → movement, right stick → aim + fire, RT → toggle fire-lock.
   const gamepad = createGamepadHandler(inputState, aimState, container)
   gamepad.attach()
+  let lazerUnlocked = true
 
   // --- Screen-to-world coordinate conversion ---
   const raycaster = new THREE.Raycaster()
@@ -452,7 +489,11 @@ export function createGameScene(
   let toolToggleButton: ToolToggleButton | null = null
 
   function toggleMiningTool(): void {
-    const newTool = tickState.activeMiningTool === 'lazer' ? 'blaster' : 'lazer'
+    const tools: MiningTool[] = ['blaster']
+    if (lazerUnlocked) tools.push('lazer')
+    if (tickState.rippleUnlocked) tools.push('ripple')
+    const currentIndex = Math.max(0, tools.indexOf(tickState.activeMiningTool))
+    const newTool = tools[(currentIndex + 1) % tools.length]
     tickState.activeMiningTool = newTool
     toolToggleButton?.setTool(newTool)
     onToolChange?.(newTool)
@@ -539,6 +580,85 @@ export function createGameScene(
   let prevLedgerInt = -1
   let prevArbiterKey = ''
   let prevTractorActive = false
+
+  function triggerEnemyDamageFeedback(
+    enemy: EnemyShip,
+    x: number,
+    y: number,
+    damage: number,
+  ): void {
+    const nowSeconds = performance.now() / 1000
+    const carrierScale = enemy.kind === 'carrier' ? 1.8 : 1
+    enemy.mesh.userData.damageFlash = Math.max(
+      Number(enemy.mesh.userData.damageFlash ?? 0),
+      enemy.kind === 'carrier' ? 1 : 0.75,
+    )
+    enemy.mesh.userData.damageShakeUntil = nowSeconds + (enemy.kind === 'carrier' ? 0.16 : 0.1)
+    enemy.mesh.userData.damageShakePower = Math.max(
+      Number(enemy.mesh.userData.damageShakePower ?? 0),
+      carrierScale * (0.45 + Math.min(0.8, damage * 0.45)),
+    )
+
+    const nextSpark = enemySparkCooldown.get(enemy) ?? 0
+    if (nowSeconds < nextSpark) return
+    enemySparkCooldown.set(enemy, nowSeconds + (enemy.kind === 'carrier' ? 0.08 : 0.14))
+    const count = enemy.kind === 'carrier' ? 5 : 3
+    const sparks = createEnemyDamageSparks(x, y, enemy.collisionRadius, count)
+    scene.add(sparks.group)
+    enemyDamageSparks.push(sparks)
+  }
+
+  function applyEnemyDamageFeedback(enemy: EnemyShip, dt: number): void {
+    const nowSeconds = performance.now() / 1000
+    const flash = Number(enemy.mesh.userData.damageFlash ?? 0)
+    if (flash > 0) {
+      enemy.mesh.userData.damageFlash = Math.max(0, flash - dt * 7)
+    }
+    const nextFlash = Number(enemy.mesh.userData.damageFlash ?? 0)
+    enemy.mesh.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return
+      const mat = obj.material
+      if (mat instanceof THREE.MeshStandardMaterial) {
+        mat.emissive.setHex(0xff5522)
+        mat.emissiveIntensity = nextFlash * 1.25
+      }
+    })
+
+    const shakeUntil = Number(enemy.mesh.userData.damageShakeUntil ?? 0)
+    if (nowSeconds > shakeUntil) return
+    const power = Number(enemy.mesh.userData.damageShakePower ?? 0)
+    const falloff = Math.max(0, (shakeUntil - nowSeconds) / 0.16)
+    enemy.mesh.position.x += (Math.random() - 0.5) * power * falloff
+    enemy.mesh.position.y += (Math.random() - 0.5) * power * falloff
+  }
+
+  function syncOptionOrbs(): void {
+    const count = Math.max(0, Math.min(2, tickState.optionCount))
+    while (optionOrbs.children.length < count) {
+      const orb = new THREE.Mesh(
+        new THREE.SphereGeometry(1.7, 12, 8),
+        new THREE.MeshBasicMaterial({
+          color: 0x88eeff,
+          transparent: true,
+          opacity: 0.9,
+          blending: THREE.AdditiveBlending,
+        }),
+      )
+      optionOrbs.add(orb)
+    }
+    while (optionOrbs.children.length > count) {
+      const orb = optionOrbs.children.pop()
+      if (orb) orb.traverse(disposeMesh)
+    }
+    for (let i = 0; i < optionOrbs.children.length; i++) {
+      const angle = tickState.elapsedTime * 1.8 + (i * Math.PI * 2) / Math.max(1, count)
+      optionOrbs.children[i].position.set(
+        ship.x + Math.cos(angle) * 12,
+        ship.y + Math.sin(angle) * 12,
+        2.5,
+      )
+    }
+  }
 
   function loop(): void {
     animId = requestAnimationFrame(loop)
@@ -641,8 +761,21 @@ export function createGameScene(
         result.beamEndX,
         result.beamEndY,
       )
-      if (result.beamActive) {
+      updateRippleBeam(
+        rippleBeam,
+        result.rippleActive,
+        result.rippleStartX,
+        result.rippleStartY,
+        result.rippleEndX,
+        result.rippleEndY,
+        tickState.elapsedTime,
+      )
+      if (result.beamActive || result.rippleActive) {
         playLaserFire()
+      }
+
+      for (const hit of result.enemyDamaged) {
+        triggerEnemyDamageFeedback(hit.enemy, hit.x, hit.y, hit.damage)
       }
 
       // Beam hit VFX (explosions on hit asteroids)
@@ -985,16 +1118,26 @@ export function createGameScene(
       }
 
       // --- Arbiter tractor beam visual + feedback ---
+      const tractorStep = getTutorialStep()
+      const prologueTractorActive =
+        !arb &&
+        tickState.prologueArbiterSpawned &&
+        (tractorStep === 'prologue-arbiter' ||
+          tractorStep === 'prologue-dialogue' ||
+          tractorStep === 'prologue-strip')
+      const prologueArbiterX = ship.x
+      const prologueArbiterY = ship.y + tickState.prologueArbiterDistance
+      const tractorActive = !!arb?.tractorActive || prologueTractorActive
       updateTractorBeam(
         tractorBeam,
-        !!arb?.tractorActive,
-        arb ? arb.x : 0,
-        arb ? arb.y : 0,
-        arb ? arb.tractorAngle : 0,
-        arb ? arb.tractorElapsed : 0,
+        tractorActive,
+        arb ? arb.x : prologueArbiterX,
+        arb ? arb.y : prologueArbiterY,
+        arb ? arb.tractorAngle : Math.atan2(ship.y - prologueArbiterY, ship.x - prologueArbiterX),
+        arb ? arb.tractorElapsed : tickState.elapsedTime,
       )
-      if (arb?.tractorActive && !prevTractorActive) addTrauma(screenShake, 0.45)
-      prevTractorActive = !!arb?.tractorActive
+      if (tractorActive && !prevTractorActive) addTrauma(screenShake, 0.45)
+      prevTractorActive = tractorActive
       if (result.arbiterCaptureHit) {
         addTrauma(screenShake, 0.85)
         playPlayerHit()
@@ -1024,6 +1167,7 @@ export function createGameScene(
 
       // --- Update enemy health meter ---
       if (tickState.enemy && tickState.enemy.alive) {
+        applyEnemyDamageFeedback(tickState.enemy, dt)
         const ehm = tickState.enemy.mesh.userData.healthMeter as THREE.Group | undefined
         if (ehm) {
           updateHealthMeter(ehm, tickState.enemy.hp, tickState.enemy.maxHp)
@@ -1033,6 +1177,7 @@ export function createGameScene(
       // --- Update ambush / patrol enemy health meters + sniper sights ---
       for (const ae of tickState.ambushEnemies) {
         if (!ae.alive) continue
+        applyEnemyDamageFeedback(ae, dt)
         const ahm = ae.mesh.userData.healthMeter as THREE.Group | undefined
         if (ahm) updateHealthMeter(ahm, ae.hp, ae.maxHp)
 
@@ -1047,6 +1192,16 @@ export function createGameScene(
               sight.scale.y = Math.max(1, Math.hypot(sdx, sdy) - 8)
             }
           }
+        }
+      }
+
+      // --- Enemy damage sparks ---
+      for (let i = enemyDamageSparks.length - 1; i >= 0; i--) {
+        const alive = updateEnemyDamageSparks(enemyDamageSparks[i], dt)
+        if (!alive) {
+          scene.remove(enemyDamageSparks[i].group)
+          disposeEnemyDamageSparks(enemyDamageSparks[i])
+          enemyDamageSparks.splice(i, 1)
         }
       }
 
@@ -1176,6 +1331,14 @@ export function createGameScene(
       shipModel.position.set(ship.x, ship.y, 0)
       shipModel.rotation.z = ship.rotation
       rechargeMeter.position.set(ship.x, ship.y, 0)
+      syncOptionOrbs()
+      shieldVisual.visible = tickState.shieldCharges > 0
+      shieldVisual.position.set(ship.x, ship.y, 1.3)
+      shieldVisual.scale.setScalar(1 + tickState.shieldCharges * 0.15 + Math.sin(now / 120) * 0.04)
+      if (result.shieldHit) {
+        addTrauma(screenShake, 0.35)
+        onShieldChanged?.(tickState.shieldCharges)
+      }
 
       // --- Turret rotation — tracks the player's aim (mouse / right stick).
       // Arrow barrel points in local +Y at rest; setting local rotation.z =
@@ -1237,9 +1400,7 @@ export function createGameScene(
           asteroids: asteroids.filter((a) => a.hp > 0),
           enemies: radarEnemies,
           station: { x: GAS_STATION_X, y: GAS_STATION_Y },
-          arbiter: arbiterModel
-            ? { x: arbiterModel.position.x, y: arbiterModel.position.y }
-            : null,
+          arbiter: arbiterModel ? { x: arbiterModel.position.x, y: arbiterModel.position.y } : null,
         })
       }
 
@@ -1283,6 +1444,7 @@ export function createGameScene(
 
     // Clean up lazer beam
     disposeLazerBeam(lazerBeam)
+    disposeRippleBeam(rippleBeam)
     disposeTractorBeam(tractorBeam)
 
     // Clean up explosions
@@ -1319,6 +1481,10 @@ export function createGameScene(
       disposeShipwreckDebris(wd)
     }
     shipwreckDebrisList.length = 0
+    for (const sparks of enemyDamageSparks) {
+      disposeEnemyDamageSparks(sparks)
+    }
+    enemyDamageSparks.length = 0
     for (const sb of tickState.scrapBoxes) {
       disposeScrapBox(sb)
     }
@@ -1356,12 +1522,22 @@ export function createGameScene(
   }
 
   function setMiningTool(tool: MiningTool) {
+    if (tool === 'lazer') lazerUnlocked = true
     tickState.activeMiningTool = tool
     toolToggleButton?.setTool(tool)
   }
 
   function setCollectorTier(tier: number) {
     tickState.collectorTier = Math.max(1, Math.min(5, Math.round(tier)))
+  }
+
+  function setCombatUpgrades(upgrades: Upgrades) {
+    tickState.blasterTier = upgrades.blaster
+    tickState.collectorTier = upgrades.collector
+    tickState.missileTier = upgrades.missiles
+    tickState.rippleUnlocked = upgrades.ripple > 0
+    tickState.optionCount = upgrades.options
+    tickState.shieldCharges = upgrades.shield
   }
 
   /** Reset ship to just north of station with full HP, swap to normal ship, clear prologue. */
@@ -1381,6 +1557,11 @@ export function createGameScene(
     tickState.collectorTier = 1
     tickState.fireRateBonus = 1.0
     tickState.activeMiningTool = 'blaster'
+    lazerUnlocked = false
+    tickState.missileTier = 0
+    tickState.rippleUnlocked = false
+    tickState.optionCount = 0
+    tickState.shieldCharges = 0
     toolToggleButton?.setTool('blaster')
     onToolChange?.('blaster')
     tickState.prologueShipFrozen = false
@@ -1457,6 +1638,11 @@ export function createGameScene(
       disposeShipwreckDebris(shipwreckDebrisList[i])
     }
     shipwreckDebrisList.length = 0
+    for (let i = enemyDamageSparks.length - 1; i >= 0; i--) {
+      scene.remove(enemyDamageSparks[i].group)
+      disposeEnemyDamageSparks(enemyDamageSparks[i])
+    }
+    enemyDamageSparks.length = 0
 
     // --- Spawn asteroid field around the station ---
     // Remove old asteroid models from scene
@@ -1561,6 +1747,11 @@ export function createGameScene(
       disposeShipwreckDebris(wd)
     }
     shipwreckDebrisList.length = 0
+    for (const sparks of enemyDamageSparks) {
+      scene.remove(sparks.group)
+      disposeEnemyDamageSparks(sparks)
+    }
+    enemyDamageSparks.length = 0
 
     // Respawn a fresh asteroid field around the station
     for (const [, entry] of asteroidModels) {
@@ -1620,6 +1811,7 @@ export function createGameScene(
     resetShipToStation,
     setMiningTool,
     setCollectorTier,
+    setCombatUpgrades,
     respawnAfterDeath,
   }
 }

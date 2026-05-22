@@ -60,9 +60,17 @@ function GoldIcon({ size = 16 }: { size?: number }) {
   )
 }
 
-function MiningToolLabel({ activeTool, hasLazer }: { activeTool: MiningTool; hasLazer: boolean }) {
-  const toolLabel = activeTool === 'lazer' ? 'LAZER' : 'BLASTER'
-  const toolColor = activeTool === 'lazer' ? '#00ccff' : '#ffaa00'
+function MiningToolLabel({
+  activeTool,
+  hasAlternateTool,
+}: {
+  activeTool: MiningTool
+  hasAlternateTool: boolean
+}) {
+  const toolLabel =
+    activeTool === 'lazer' ? 'LAZER' : activeTool === 'ripple' ? 'RIPPLE' : 'BLASTER'
+  const toolColor =
+    activeTool === 'lazer' ? '#00ccff' : activeTool === 'ripple' ? '#77ffcc' : '#ffaa00'
   const isMobile = typeof window !== 'undefined' && 'ontouchstart' in window
 
   return (
@@ -72,7 +80,7 @@ function MiningToolLabel({ activeTool, hasLazer }: { activeTool: MiningTool; has
       data-testid="mining-tool-label"
     >
       {toolLabel}
-      {!isMobile && hasLazer && (
+      {!isMobile && hasAlternateTool && (
         <span className="ml-1 text-white/40 font-normal text-[clamp(0.625rem,1.6vw,0.75rem)]">
           [Q]
         </span>
@@ -141,7 +149,10 @@ export function HUD({
               </div>
             </div>
           )}
-          <MiningToolLabel activeTool={activeTool} hasLazer={hasLazer} />
+          <MiningToolLabel
+            activeTool={activeTool}
+            hasAlternateTool={hasLazer || upgrades.ripple > 0}
+          />
         </div>
 
         {/* Right: Upgrades + Pause */}
@@ -150,6 +161,13 @@ export function HUD({
             <div className="text-hud-red">BLASTER Mk{upgrades.blaster}</div>
             <div className="text-hud-green">COLLECTOR Mk{upgrades.collector}</div>
             <div className="text-hud-blue">STORAGE Mk{upgrades.storage}</div>
+            {upgrades.missiles > 0 && (
+              <div className="text-hud-amber">MISSILES x{upgrades.missiles}</div>
+            )}
+            {upgrades.options > 0 && (
+              <div className="text-cyan-200">OPTION x{upgrades.options}</div>
+            )}
+            {upgrades.shield > 0 && <div className="text-sky-300">SHIELD {upgrades.shield}</div>}
           </div>
           <button
             onClick={onPause}

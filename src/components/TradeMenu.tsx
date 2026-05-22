@@ -23,6 +23,30 @@ const UPGRADE_CATALOG = [
     cost: 100,
     description: '+25 cargo capacity',
   },
+  {
+    type: 'missiles' as const,
+    label: 'Heat Seeking Spread Missiles',
+    cost: 140,
+    description: '+1 side-launching homing missile',
+  },
+  {
+    type: 'ripple' as const,
+    label: 'Ripple Beam',
+    cost: 260,
+    description: 'Wide beam that expands with distance',
+  },
+  {
+    type: 'options' as const,
+    label: 'Option',
+    cost: 220,
+    description: 'Orbital duplicate primary weapon',
+  },
+  {
+    type: 'shield' as const,
+    label: 'Life-Force Shield',
+    cost: 180,
+    description: 'Restores a 3-hit damage shield',
+  },
 ]
 
 interface TradeMenuProps {
@@ -225,7 +249,15 @@ function BuyPanel({
       <div className="text-white/60 text-sm mb-1">UPGRADES</div>
       {UPGRADE_CATALOG.map((item) => {
         const currentLevel = upgrades[item.type]
-        const maxed = currentLevel >= 5
+        const maxLevel =
+          item.type === 'missiles'
+            ? 8
+            : item.type === 'options'
+              ? 2
+              : item.type === 'ripple'
+                ? 1
+                : 5
+        const maxed = item.type === 'shield' ? currentLevel >= 3 : currentLevel >= maxLevel
         const canAfford = scrap >= item.cost && !maxed
         const isFireRate = item.type === 'blaster'
         const highlight = isTutorial && isFireRate
@@ -246,7 +278,8 @@ function BuyPanel({
                 {item.label}
               </div>
               <div className="text-sm text-white/40">
-                {maxed ? 'MAX LEVEL' : item.description} — Mk{currentLevel}
+                {maxed ? 'MAX LEVEL' : item.description} —{' '}
+                {item.type === 'shield' ? `${currentLevel}/3` : `Mk${currentLevel}`}
               </div>
             </div>
             <button

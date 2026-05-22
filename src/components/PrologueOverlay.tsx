@@ -10,8 +10,9 @@ const ARBITER_VOICE_LINES = [
   './audio/vo_arbeter03.wav',
 ] as const
 
-const ARBITER_DIALOGUE_BASE_MS = 950
-const ARBITER_DIALOGUE_MS_PER_CHAR = 32
+const ARBITER_DIALOGUE_FALLBACK_BASE_MS = 950
+const ARBITER_DIALOGUE_FALLBACK_MS_PER_CHAR = 32
+const ARBITER_DIALOGUE_AFTER_VOICE_MS = 150
 const ARBITER_DIALOGUE_DONE_MS = 250
 
 interface PrologueOverlayProps {
@@ -50,31 +51,37 @@ function ArbiterDialogue({ onComplete }: { onComplete: () => void }) {
   const allRevealed = lineIndex >= ARBITER_DIALOGUE.length
 
   useEffect(() => {
-    if (lineIndex >= ARBITER_VOICE_LINES.length) return
-
-    voiceRef.current?.pause()
-    const voice = new Audio(ARBITER_VOICE_LINES[lineIndex])
-    voice.preload = 'auto'
-    voiceRef.current = voice
-    void voice.play().catch(() => {})
-
-    return () => {
-      voice.pause()
-      if (voiceRef.current === voice) voiceRef.current = null
-    }
-  }, [lineIndex])
-
-  // Auto-advance: hold each line close to the voiceover cadence, while still
-  // scaling slightly with line length for readability.
-  useEffect(() => {
     if (lineIndex >= ARBITER_DIALOGUE.length) {
       const done = setTimeout(onComplete, ARBITER_DIALOGUE_DONE_MS)
       return () => clearTimeout(done)
     }
-    const readMs =
-      ARBITER_DIALOGUE_BASE_MS + ARBITER_DIALOGUE[lineIndex].length * ARBITER_DIALOGUE_MS_PER_CHAR
-    const next = setTimeout(() => setLineIndex((i) => i + 1), readMs)
-    return () => clearTimeout(next)
+
+    voiceRef.current?.pause()
+    const voice = new Audio(ARBITER_VOICE_LINES[lineIndex] ?? '')
+    voice.preload = 'auto'
+    voiceRef.current = voice
+    let fallback: ReturnType<typeof setTimeout> | null = null
+
+    const advance = () => {
+      fallback = setTimeout(() => {
+        setLineIndex((i) => i + 1)
+      }, ARBITER_DIALOGUE_AFTER_VOICE_MS)
+    }
+
+    voice.addEventListener('ended', advance, { once: true })
+    void voice.play().catch(() => {
+      const readMs =
+        ARBITER_DIALOGUE_FALLBACK_BASE_MS +
+        ARBITER_DIALOGUE[lineIndex].length * ARBITER_DIALOGUE_FALLBACK_MS_PER_CHAR
+      fallback = setTimeout(() => setLineIndex((i) => i + 1), readMs)
+    })
+
+    return () => {
+      if (fallback) clearTimeout(fallback)
+      voice.removeEventListener('ended', advance)
+      voice.pause()
+      if (voiceRef.current === voice) voiceRef.current = null
+    }
   }, [lineIndex, onComplete])
 
   return (

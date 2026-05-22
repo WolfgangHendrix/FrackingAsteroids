@@ -14,7 +14,8 @@ export interface Asteroid {
 
 export type AsteroidType = 'common' | 'dense' | 'precious' | 'comet' | 'crystalline'
 
-export type MiningTool = 'blaster' | 'lazer'
+export type MiningTool = 'blaster' | 'lazer' | 'ripple'
+export type ProjectileTool = MiningTool | 'missile'
 
 export interface Fragment {
   id: string
@@ -33,7 +34,7 @@ export interface Projectile {
   velocityX: number
   velocityY: number
   damage: number
-  tool: MiningTool
+  tool: ProjectileTool
 }
 
 export interface GameEngine {

@@ -27,6 +27,8 @@ import {
   updateBlasterCooldown,
   updateLazerState,
   fireBlaster,
+  fireBlasterFrom,
+  createMissileProjectile,
   updateProjectiles,
 } from './blaster'
 import { DAMAGE_PER_TIER, LAZER_BEAM_RANGE, clampTier } from './blaster-constants'
@@ -142,6 +144,7 @@ export interface TickState {
 
   blasterState: BlasterState
   lazerState: LazerState
+  missileCooldown: number
   projectileElapsed: Map<string, number>
   asteroidHitCounts: Map<string, number>
   blasterTier: number
@@ -149,6 +152,10 @@ export interface TickState {
   collectorTier: number
   activeMiningTool: MiningTool
   fireRateBonus: number
+  missileTier: number
+  rippleUnlocked: boolean
+  optionCount: number
+  shieldCharges: number
 
   // Fire/aim state — tick() clears these on unpause
   fireTarget: { x: number; y: number } | null
@@ -257,6 +264,11 @@ export interface TickResult {
   beamEndX: number
   beamEndY: number
   beamHits: BeamHit[]
+  rippleActive: boolean
+  rippleStartX: number
+  rippleStartY: number
+  rippleEndX: number
+  rippleEndY: number
   // Metal spawned from asteroid hits
   newMetalChunks: MetalChunk[]
   // Collection events
@@ -265,6 +277,13 @@ export interface TickResult {
   // Enemy lifecycle
   enemySpawned: EnemyShip | null
   enemyDestroyed: { x: number; y: number } | null
+  enemyDamaged: {
+    enemy: EnemyShip
+    damage: number
+    x: number
+    y: number
+    source: 'beam' | 'projectile'
+  }[]
   newEnemyProjectiles: EnemyProjectile[]
   expiredEnemyProjectileIds: string[]
   enemyProjectileHits: { id: string; x: number; y: number; damage: number }[]
@@ -300,6 +319,7 @@ export interface TickResult {
   stripAdvanced: boolean
   stripComplete: boolean
   prologuePlayerKilled: boolean
+  shieldHit: boolean
   // Endless mode
   /** Current Ledger value (always set, even outside endless mode). */
   ledger: number
@@ -330,6 +350,10 @@ export interface TickStateConfig {
   collectorTier?: number
   miningTool?: MiningTool
   fireRateBonus?: number
+  missileTier?: number
+  rippleUnlocked?: boolean
+  optionCount?: number
+  shieldCharges?: number
   asteroids?: Asteroid[]
   stationPosition?: { x: number; y: number }
 }
@@ -363,12 +387,17 @@ export function createTickState(config?: TickStateConfig): TickState {
 
     blasterState: createBlasterState(),
     lazerState: createLazerState(),
+    missileCooldown: 0,
     projectileElapsed: new Map(),
     asteroidHitCounts: hitCounts,
     blasterTier: config?.blasterTier ?? 1,
     collectorTier: config?.collectorTier ?? 1,
     activeMiningTool: config?.miningTool ?? 'blaster',
     fireRateBonus: config?.fireRateBonus ?? 1.0,
+    missileTier: config?.missileTier ?? 0,
+    rippleUnlocked: config?.rippleUnlocked ?? false,
+    optionCount: config?.optionCount ?? 0,
+    shieldCharges: config?.shieldCharges ?? 0,
 
     fireTarget: null,
     mouseHoldingFire: false,
@@ -435,11 +464,17 @@ function emptyResult(): TickResult {
     beamEndX: 0,
     beamEndY: 0,
     beamHits: [],
+    rippleActive: false,
+    rippleStartX: 0,
+    rippleStartY: 0,
+    rippleEndX: 0,
+    rippleEndY: 0,
     newMetalChunks: [],
     metalCollected: [],
     scrapCollected: [],
     enemySpawned: null,
     enemyDestroyed: null,
+    enemyDamaged: [],
     newEnemyProjectiles: [],
     expiredEnemyProjectileIds: [],
     enemyProjectileHits: [],
@@ -468,6 +503,7 @@ function emptyResult(): TickResult {
     stripAdvanced: false,
     stripComplete: false,
     prologuePlayerKilled: false,
+    shieldHit: false,
     ledger: 0,
     newAsteroids: [],
     expiredAsteroidIds: [],
@@ -536,8 +572,7 @@ function aimLineHasVisibleTarget(
   // A target counts only if its body overlaps the viewport (visible, even
   // partially) AND the firing line passes within its radius (in line).
   const onScreen = (x: number, y: number, r: number): boolean =>
-    Math.abs(x - view.centerX) <= view.halfW + r &&
-    Math.abs(y - view.centerY) <= view.halfH + r
+    Math.abs(x - view.centerX) <= view.halfW + r && Math.abs(y - view.centerY) <= view.halfH + r
 
   for (const a of state.asteroids) {
     if (a.hp <= 0) continue
@@ -577,6 +612,90 @@ function aimLineHasVisibleTarget(
   return false
 }
 
+function segmentProjection(
+  cx: number,
+  cy: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): { t: number; distSq: number } {
+  const abx = bx - ax
+  const aby = by - ay
+  const lenSq = abx * abx + aby * aby
+  if (lenSq < 0.0001) {
+    const dx = cx - ax
+    const dy = cy - ay
+    return { t: 0, distSq: dx * dx + dy * dy }
+  }
+  const t = Math.max(0, Math.min(1, ((cx - ax) * abx + (cy - ay) * aby) / lenSq))
+  const px = ax + abx * t
+  const py = ay + aby * t
+  const dx = cx - px
+  const dy = cy - py
+  return { t, distSq: dx * dx + dy * dy }
+}
+
+function optionMuzzlePositions(state: TickState): { x: number; y: number }[] {
+  const positions: { x: number; y: number }[] = []
+  const count = Math.max(0, Math.min(2, state.optionCount))
+  if (count === 0) return positions
+  const time = state.elapsedTime * 1.8
+  for (let i = 0; i < count; i++) {
+    const angle = time + (i * Math.PI * 2) / count
+    positions.push({
+      x: state.ship.x + Math.cos(angle) * 12,
+      y: state.ship.y + Math.sin(angle) * 12,
+    })
+  }
+  return positions
+}
+
+function nearestHomingTarget(state: TickState, x: number, y: number): PositionBody | null {
+  let best: PositionBody | null = null
+  let bestSq = Infinity
+  const consider = (target: PositionBody): void => {
+    const dx = target.x - x
+    const dy = target.y - y
+    const d = dx * dx + dy * dy
+    if (d < bestSq) {
+      bestSq = d
+      best = target
+    }
+  }
+  if (state.enemy?.alive) consider(state.enemy)
+  for (const e of state.ambushEnemies) if (e.alive) consider(e)
+  if (state.arbiter && state.arbiter.hp > 0 && state.arbiter.mode === 'hunting')
+    consider(state.arbiter)
+  return best
+}
+
+function steerMissiles(state: TickState, dt: number): void {
+  for (const p of state.projectiles) {
+    if (p.tool !== 'missile') continue
+    const target = nearestHomingTarget(state, p.x, p.y)
+    if (!target) continue
+    const speed = Math.hypot(p.velocityX, p.velocityY)
+    if (speed < 1) continue
+    const desired = Math.atan2(target.y - p.y, target.x - p.x)
+    const current = Math.atan2(p.velocityY, p.velocityX)
+    let diff = desired - current
+    while (diff > Math.PI) diff -= Math.PI * 2
+    while (diff < -Math.PI) diff += Math.PI * 2
+    const maxTurn = 4.8 * dt
+    const next = current + Math.max(-maxTurn, Math.min(maxTurn, diff))
+    p.velocityX = Math.cos(next) * speed
+    p.velocityY = Math.sin(next) * speed
+  }
+}
+
+function absorbDamageWithShield(state: TickState, result: TickResult): boolean {
+  if (state.shieldCharges <= 0) return false
+  state.shieldCharges -= 1
+  result.shieldHit = true
+  return true
+}
+
 type PositionBody = { x: number; y: number }
 type VelocityBody = PositionBody & { velocityX: number; velocityY: number }
 type VBody = PositionBody & { vx: number; vy: number }
@@ -612,11 +731,7 @@ function applyBlackHolePullToBody(
   body.velocityY += pull.ny * accel * dt
 }
 
-function applyBlackHolePullToAsteroid(
-  asteroid: Asteroid,
-  hole: PositionBody,
-  dt: number,
-): void {
+function applyBlackHolePullToAsteroid(asteroid: Asteroid, hole: PositionBody, dt: number): void {
   applyBlackHolePullToBody(asteroid, hole, dt)
 }
 
@@ -648,11 +763,7 @@ function isInsideBlackHole(body: PositionBody, hole: PositionBody): boolean {
   return dx * dx + dy * dy <= BLACK_HOLE_EVENT_HORIZON_RADIUS * BLACK_HOLE_EVENT_HORIZON_RADIUS
 }
 
-function applyBlackHoleConsumption(
-  state: TickState,
-  input: TickInput,
-  result: TickResult,
-): void {
+function applyBlackHoleConsumption(state: TickState, input: TickInput, result: TickResult): void {
   const hole = input.blackHole
   if (!hole) return
 
@@ -710,6 +821,10 @@ function prologueTick(state: TickState, input: TickInput, result: TickResult): v
       state.blasterTier = PROLOGUE_SHIP.blasterTier
       state.fireRateBonus = PROLOGUE_SHIP.fireRateBonus
       state.activeMiningTool = PROLOGUE_SHIP.miningTool
+      state.missileTier = PROLOGUE_SHIP.missileTier
+      state.rippleUnlocked = true
+      state.optionCount = PROLOGUE_SHIP.optionCount
+      state.shieldCharges = PROLOGUE_SHIP.shieldCharges
     }
     // Clear any stale Arbiter-approach state so the scripted fly-in always
     // plays from full distance. Without this a leftover `prologueArbiterSpawned`
@@ -885,12 +1000,7 @@ export function tick(state: TickState, input: TickInput): TickResult {
     : input.inputState
   updateShip(state.ship, effectiveInput, dt)
   if (endlessActive && input.blackHole) {
-    applyBlackHolePullToBody(
-      state.ship,
-      input.blackHole,
-      dt,
-      BLACK_HOLE_PLAYER_PULL_MULT,
-    )
+    applyBlackHolePullToBody(state.ship, input.blackHole, dt, BLACK_HOLE_PLAYER_PULL_MULT)
   }
 
   // Prologue speed override: boost acceleration and raise speed cap.
@@ -922,8 +1032,10 @@ export function tick(state: TickState, input: TickInput): TickResult {
   if (state.arbiter && state.arbiter.tractorActive) {
     const { captureDamage } = applyTractorPull(state.arbiter, state.ship, dt)
     if (captureDamage > 0) {
-      state.playerHp = Math.max(0, state.playerHp - captureDamage)
-      result.playerDamaged = true
+      if (!absorbDamageWithShield(state, result)) {
+        state.playerHp = Math.max(0, state.playerHp - captureDamage)
+        result.playerDamaged = true
+      }
       result.arbiterCaptureHit = true
     }
   }
@@ -973,6 +1085,7 @@ export function tick(state: TickState, input: TickInput): TickResult {
 
   // --- Blaster cooldown ---
   updateBlasterCooldown(state.blasterState, dt)
+  state.missileCooldown = Math.max(0, state.missileCooldown - dt)
 
   // Snapshot the player's actual mouse-hold state BEFORE the auto-fire block
   // may flip mouseHoldingFire on. This lets us distinguish "user is manually
@@ -1022,6 +1135,39 @@ export function tick(state: TickState, input: TickInput): TickResult {
     }
   }
 
+  if (
+    state.missileTier > 0 &&
+    state.missileCooldown <= 0 &&
+    firingAllowed &&
+    (state.fireTarget || state.mouseHoldingFire)
+  ) {
+    const target = state.fireTarget ?? input.aimWorldPosition
+    if (target) {
+      const dx = target.x - state.ship.x
+      const dy = target.y - state.ship.y
+      const base = Math.atan2(dy, dx)
+      const count = Math.max(1, Math.min(8, state.missileTier))
+      const damage = 2 + Math.floor(state.blasterTier / 2)
+      for (let i = 0; i < count; i++) {
+        const side = i % 2 === 0 ? -1 : 1
+        const row = Math.floor(i / 2)
+        const sideAngle = state.ship.rotation + (side < 0 ? Math.PI : 0)
+        const ox = Math.cos(sideAngle) * (5 + row * 1.2)
+        const oy = Math.sin(sideAngle) * (5 + row * 1.2)
+        const spread = side * (0.38 + row * 0.08)
+        const missile = createMissileProjectile(
+          state.ship.x + ox,
+          state.ship.y + oy,
+          base + spread,
+          damage,
+        )
+        state.projectiles.push(missile)
+        result.newProjectiles.push(missile)
+      }
+      state.missileCooldown = 1.3
+    }
+  }
+
   // --- Fire ---
   if (state.activeMiningTool === 'lazer') {
     // Sustained lazer beam: continuous beam while held, direct-hit damage each tick
@@ -1051,7 +1197,7 @@ export function tick(state: TickState, input: TickInput): TickResult {
 
       // Beam damage scales with tier and dt (continuous DPS)
       const baseDamage = DAMAGE_PER_TIER[clampTier(state.blasterTier) - 1]
-      const dps = baseDamage * 5 // 5x base damage per second for sustained beam
+      const dps = baseDamage * 5 * (1 + state.optionCount * 0.55)
       const frameDamage = dps * dt
 
       const liveAsteroids = state.asteroids.filter((a) => a.hp > 0)
@@ -1085,7 +1231,16 @@ export function tick(state: TickState, input: TickInput): TickResult {
           frameDamage,
           en,
         )
-        if (r.hit) beamHitEnemies.push({ enemy: en, killed: r.killed, isAmbush, t: r.t })
+        if (r.hit) {
+          result.enemyDamaged.push({
+            enemy: en,
+            damage: frameDamage,
+            x: en.x,
+            y: en.y,
+            source: 'beam',
+          })
+          beamHitEnemies.push({ enemy: en, killed: r.killed, isAmbush, t: r.t })
+        }
       }
       tryBeamEnemy(state.enemy, false)
       for (const ae of state.ambushEnemies) tryBeamEnemy(ae, true)
@@ -1166,6 +1321,77 @@ export function tick(state: TickState, input: TickInput): TickResult {
     if (!state.mouseHoldingFire) {
       state.fireTarget = null
     }
+  } else if (state.activeMiningTool === 'ripple') {
+    const hasFireTarget = state.fireTarget !== null
+    const rippleFiring = state.rippleUnlocked && (state.mouseHoldingFire || hasFireTarget)
+    if (rippleFiring && state.fireTarget) {
+      const dx = state.fireTarget.x - state.ship.x
+      const dy = state.fireTarget.y - state.ship.y
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      const dirX = dist < 0.5 ? Math.cos(state.ship.rotation + Math.PI / 2) : dx / dist
+      const dirY = dist < 0.5 ? Math.sin(state.ship.rotation + Math.PI / 2) : dy / dist
+      const range = LAZER_BEAM_RANGE * 0.85
+      result.rippleActive = true
+      result.rippleStartX = state.ship.x
+      result.rippleStartY = state.ship.y
+      result.rippleEndX = state.ship.x + dirX * range
+      result.rippleEndY = state.ship.y + dirY * range
+
+      const dps =
+        DAMAGE_PER_TIER[clampTier(state.blasterTier) - 1] * (3.8 + state.optionCount * 0.7)
+      const frameDamage = dps * dt
+      for (const a of state.asteroids) {
+        if (a.hp <= 0) continue
+        const hit = segmentProjection(
+          a.x,
+          a.y,
+          result.rippleStartX,
+          result.rippleStartY,
+          result.rippleEndX,
+          result.rippleEndY,
+        )
+        const radius = 4 + hit.t * 22
+        if (hit.distSq > radius * radius) continue
+        a.hp = Math.max(0, a.hp - frameDamage)
+        result.asteroidHit = true
+      }
+      const rippleEnemy = (en: EnemyShip | null, isAmbush: boolean): void => {
+        if (!en || !en.alive) return
+        const hit = segmentProjection(
+          en.x,
+          en.y,
+          result.rippleStartX,
+          result.rippleStartY,
+          result.rippleEndX,
+          result.rippleEndY,
+        )
+        const radius = 5 + hit.t * 26 + en.collisionRadius * 0.35
+        if (hit.distSq > radius * radius) return
+        en.hp = Math.max(0, en.hp - frameDamage)
+        result.enemyDamaged.push({
+          enemy: en,
+          damage: frameDamage,
+          x: en.x,
+          y: en.y,
+          source: 'beam',
+        })
+        if (en.hp <= 0) {
+          en.alive = false
+          const box = createScrapBox(en.x, en.y)
+          state.scrapBoxes.push(box)
+          result.enemyDestroyed = { x: en.x, y: en.y }
+          result.enemyDestroyedEvent = true
+          dropScavengerLoot(state, result, en)
+          if (isAmbush) result.ambushEnemiesDestroyed.push(en)
+          else if (state.enemy === en) state.enemy = null
+        }
+      }
+      rippleEnemy(state.enemy, false)
+      for (const ae of state.ambushEnemies) rippleEnemy(ae, true)
+    }
+    if (!state.mouseHoldingFire) {
+      state.fireTarget = null
+    }
   } else {
     // Blaster: standard cooldown-based firing
     if (state.fireTarget) {
@@ -1184,6 +1410,19 @@ export function tick(state: TickState, input: TickInput): TickResult {
         state.projectiles.push(p)
         result.newProjectiles.push(p)
       }
+      for (const option of optionMuzzlePositions(state)) {
+        for (const p of fireBlasterFrom(
+          option.x,
+          option.y,
+          state.fireTarget.x,
+          state.fireTarget.y,
+          state.blasterTier,
+          state.activeMiningTool,
+        )) {
+          state.projectiles.push(p)
+          result.newProjectiles.push(p)
+        }
+      }
       state.fireTarget = null
     }
   }
@@ -1199,6 +1438,7 @@ export function tick(state: TickState, input: TickInput): TickResult {
       state.projectiles.splice(i, 1)
     }
   }
+  steerMissiles(state, dt)
   const prevIds = state.projectiles.map((p) => p.id)
   state.projectiles = updateProjectiles(state.projectiles, dt, state.projectileElapsed)
   const currentIds = new Set(state.projectiles.map((p) => p.id))
@@ -1288,6 +1528,13 @@ export function tick(state: TickState, input: TickInput): TickResult {
       for (const hitId of hitProjectileIds) {
         state.projectileElapsed.delete(hitId)
         result.expiredProjectileIds.push(hitId)
+        result.enemyDamaged.push({
+          enemy: state.enemy,
+          damage: 1,
+          x: state.enemy.x,
+          y: state.enemy.y,
+          source: 'projectile',
+        })
       }
       state.projectiles = surviving
 
@@ -1326,11 +1573,13 @@ export function tick(state: TickState, input: TickInput): TickResult {
         const proj = state.enemyProjectiles[i]
         if (!hitIds.has(proj.id)) continue
         const damage = proj.damage
-        state.playerHp = Math.max(0, state.playerHp - damage)
+        if (!absorbDamageWithShield(state, result)) {
+          state.playerHp = Math.max(0, state.playerHp - damage)
+          result.playerDamaged = true
+        }
         result.enemyProjectileHits.push({ id: proj.id, x: proj.x, y: proj.y, damage })
         state.enemyProjectiles.splice(i, 1)
       }
-      result.playerDamaged = true
     }
   }
 
@@ -1480,6 +1729,13 @@ export function tick(state: TickState, input: TickInput): TickResult {
         for (const hitId of hitProjectileIds) {
           state.projectileElapsed.delete(hitId)
           result.expiredProjectileIds.push(hitId)
+          result.enemyDamaged.push({
+            enemy: ae,
+            damage: 1,
+            x: ae.x,
+            y: ae.y,
+            source: 'projectile',
+          })
         }
         state.projectiles = surviving
 

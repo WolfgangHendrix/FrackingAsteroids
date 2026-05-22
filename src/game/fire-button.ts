@@ -15,6 +15,7 @@ interface ButtonStyle {
 
 const STYLE_FIRE: ButtonStyle = { r: 255, g: 170, b: 0 }
 const STYLE_LAZER: ButtonStyle = { r: 0, g: 204, b: 255 }
+const STYLE_RIPPLE: ButtonStyle = { r: 119, g: 255, b: 204 }
 
 function rgba(s: ButtonStyle, a: number): string {
   return `rgba(${s.r},${s.g},${s.b},${a})`
@@ -65,11 +66,11 @@ export function createToolToggleButton(
   container.appendChild(button)
 
   function updateStyle(tool: MiningTool): void {
-    const style = tool === 'lazer' ? STYLE_LAZER : STYLE_FIRE
+    const style = tool === 'lazer' ? STYLE_LAZER : tool === 'ripple' ? STYLE_RIPPLE : STYLE_FIRE
     button.style.borderColor = rgba(style, 0.6)
     button.style.background = rgba(style, 0.15)
     label.style.color = rgba(style, 0.9)
-    label.textContent = tool === 'lazer' ? 'LZR' : 'BLS'
+    label.textContent = tool === 'lazer' ? 'LZR' : tool === 'ripple' ? 'RPL' : 'BLS'
   }
 
   function onTouchStart(e: TouchEvent): void {

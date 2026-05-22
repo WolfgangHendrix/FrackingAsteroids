@@ -1,5 +1,5 @@
 import type { Ship } from '@/lib/schemas'
-import type { MiningTool, Projectile } from './types'
+import type { MiningTool, Projectile, ProjectileTool } from './types'
 import {
   BASE_PROJECTILE_SPEED,
   SPEED_MULTIPLIERS,
@@ -182,13 +182,52 @@ export function fireBlaster(
   return projectiles
 }
 
+export function fireBlasterFrom(
+  x: number,
+  y: number,
+  targetX: number,
+  targetY: number,
+  tier: number,
+  tool: MiningTool = 'blaster',
+): Projectile[] {
+  const clamped = clampTier(tier)
+  const tierIndex = clamped - 1
+  const speed = BASE_PROJECTILE_SPEED * SPEED_MULTIPLIERS[tierIndex]
+  const damage = DAMAGE_PER_TIER[tierIndex]
+  const dx = targetX - x
+  const dy = targetY - y
+  const dist = Math.sqrt(dx * dx + dy * dy)
+  const baseAngle = dist < 0.5 ? Math.PI / 2 : Math.atan2(dy, dx)
+
+  if (clamped >= 5) {
+    return [-TRIPLE_SPREAD_ANGLE, 0, TRIPLE_SPREAD_ANGLE].map((offset) =>
+      makeProjectile(x, y, baseAngle + offset, speed, damage, tool),
+    )
+  }
+  if (clamped >= 4) {
+    return [-DUAL_SPREAD_ANGLE, DUAL_SPREAD_ANGLE].map((offset) =>
+      makeProjectile(x, y, baseAngle + offset, speed, damage, tool),
+    )
+  }
+  return [makeProjectile(x, y, baseAngle, speed, damage, tool)]
+}
+
+export function createMissileProjectile(
+  x: number,
+  y: number,
+  angle: number,
+  damage: number,
+): Projectile {
+  return makeProjectile(x, y, angle, 95, damage, 'missile')
+}
+
 function makeProjectile(
   x: number,
   y: number,
   angle: number,
   speed: number,
   damage: number,
-  tool: MiningTool = 'blaster',
+  tool: ProjectileTool = 'blaster',
 ): Projectile {
   return {
     id: generateProjectileId(),

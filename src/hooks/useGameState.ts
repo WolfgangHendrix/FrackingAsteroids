@@ -11,6 +11,16 @@ export const SILVER_SCRAP_VALUE = 5
 /** Scrap value per unit of gold ore. */
 export const GOLD_SCRAP_VALUE = 15
 
+const UPGRADE_MAX: Record<keyof Upgrades, number> = {
+  blaster: 5,
+  collector: 5,
+  storage: 5,
+  missiles: 8,
+  ripple: 1,
+  options: 2,
+  shield: 3,
+}
+
 export interface GameStateHook {
   paused: boolean
   scrap: number
@@ -24,6 +34,7 @@ export interface GameStateHook {
   onScrapCollect: (amount: number) => void
   sellMaterials: () => number
   buyUpgrade: (type: keyof Upgrades, cost: number, onPurchased?: (ok: boolean) => void) => void
+  setUpgradeLevel: (type: keyof Upgrades, value: number) => void
   spendScrap: (amount: number) => boolean
   resetRunCargo: () => void
 }
@@ -82,7 +93,8 @@ export function useGameState(): GameStateHook {
         // Can afford — also bump the upgrade level
         setUpgrades((prev) => ({
           ...prev,
-          [type]: Math.min(prev[type] + 1, 5),
+          [type]:
+            type === 'shield' ? UPGRADE_MAX.shield : Math.min(prev[type] + 1, UPGRADE_MAX[type]),
         }))
         setTimeout(() => onPurchased?.(true), 0)
         return prevScrap - cost
@@ -109,6 +121,13 @@ export function useGameState(): GameStateHook {
     return success
   }, [])
 
+  const setUpgradeLevel = useCallback((type: keyof Upgrades, value: number): void => {
+    setUpgrades((prev) => ({
+      ...prev,
+      [type]: Math.max(0, Math.min(UPGRADE_MAX[type], Math.round(value))),
+    }))
+  }, [])
+
   return {
     paused,
     scrap,
@@ -122,6 +141,7 @@ export function useGameState(): GameStateHook {
     onScrapCollect,
     sellMaterials,
     buyUpgrade,
+    setUpgradeLevel,
     spendScrap,
     resetRunCargo,
   }

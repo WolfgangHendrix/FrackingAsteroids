@@ -65,6 +65,7 @@ export default function Home() {
     onScrapCollect,
     sellMaterials,
     buyUpgrade,
+    setUpgradeLevel,
     spendScrap,
     resetRunCargo,
   } = useGameState()
@@ -168,6 +169,16 @@ export default function Home() {
 
   const handleBuy = useCallback(
     (type: keyof Upgrades, cost: number) => {
+      const nextUpgrades: Upgrades = {
+        ...upgrades,
+        [type]:
+          type === 'shield'
+            ? 3
+            : Math.min(
+                upgrades[type] + 1,
+                type === 'missiles' ? 8 : type === 'options' ? 2 : type === 'ripple' ? 1 : 5,
+              ),
+      }
       buyUpgrade(type, cost, (ok) => {
         if (!ok) return
         if (type === 'blaster') {
@@ -177,13 +188,14 @@ export default function Home() {
           // upgrades.collector hasn't applied yet (setState scheduled); pass +1
           gameCanvasRef.current?.setCollectorTier(upgrades.collector + 1)
         }
+        gameCanvasRef.current?.setCombatUpgrades(nextUpgrades)
         if (tutorial.active) {
           tutorial.onBoughtUpgrade()
         }
         requestSave()
       })
     },
-    [buyUpgrade, tutorial, requestSave, upgrades.collector],
+    [buyUpgrade, tutorial, requestSave, upgrades],
   )
 
   const handleBuyLazer = useCallback(() => {
@@ -211,6 +223,14 @@ export default function Home() {
   const handleToolChange = useCallback((tool: MiningTool) => {
     setActiveTool(tool)
   }, [])
+
+  const handleShieldChanged = useCallback(
+    (charges: number) => {
+      setUpgradeLevel('shield', charges)
+      requestSave()
+    },
+    [setUpgradeLevel, requestSave],
+  )
 
   const handleArbiterEvent = useCallback((event: ArbiterEvent) => {
     const text =
@@ -426,6 +446,7 @@ export default function Home() {
         onArbiterChanged={setArbiterHud}
         onArbiterEvent={handleArbiterEvent}
         onRunEnded={handleRunEnded}
+        onShieldChanged={handleShieldChanged}
         onPrologueReady={tutorial.onPrologueReady}
         onFieldCleared={tutorial.onFieldCleared}
         onArbiterArrived={tutorial.onArbiterArrived}
