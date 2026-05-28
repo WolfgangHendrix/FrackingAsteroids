@@ -756,6 +756,51 @@ export function createGameScene(
   // --- Screen Shake ---
   const screenShake: ScreenShake = createScreenShake()
 
+  // --- Accessibility: prefers-reduced-motion ---
+  // When the user has the OS-level "reduce motion" pref on, we mute the
+  // bloom-stacked / vignetted / chromatic-aberrated post-process and turn
+  // off screen shake. The game still plays normally; just stops moving the
+  // camera and stops flashing the screen. Re-evaluated live on media-query
+  // changes so toggling the OS setting takes effect without a reload.
+  const reducedMotionMQ =
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-reduced-motion: reduce)')
+      : null
+
+  function applyReducedMotion(reduced: boolean): void {
+    if (reduced) {
+      // Force the post-process passes to silent values. The bloom.update()
+      // call in the main loop will be undone by these setters because we
+      // re-apply them after update via the existing debug-overlay path.
+      debugBloomEnabled = false
+      debugVignetteEnabled = false
+      debugChromaticEnabled = false
+      bloom.setBloom(0, true)
+      bloom.setVignette(0)
+      bloom.setChromaticAberration(0)
+      screenShake.enabled = false
+    } else {
+      debugBloomEnabled = true
+      debugVignetteEnabled = true
+      debugChromaticEnabled = true
+      screenShake.enabled = true
+    }
+  }
+  // Apply once now, then listen for OS-level changes (e.g. the user toggles
+  // the system pref while the game is running).
+  applyReducedMotion(reducedMotionMQ?.matches ?? false)
+  if (reducedMotionMQ) {
+    const onReducedMotionChange = (e: MediaQueryListEvent): void => {
+      applyReducedMotion(e.matches)
+    }
+    // Older Safari only supports addListener; modern is addEventListener.
+    if (reducedMotionMQ.addEventListener) {
+      reducedMotionMQ.addEventListener('change', onReducedMotionChange)
+    } else {
+      ;(reducedMotionMQ as MediaQueryList).addListener(onReducedMotionChange)
+    }
+  }
+
   // --- Background Effects ---
   const twinkleStars: TwinkleStars = createTwinkleStars()
   scene.add(twinkleStars.points)

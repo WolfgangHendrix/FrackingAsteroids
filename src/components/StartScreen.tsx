@@ -5,6 +5,7 @@ import { SAVE_SLOT_IDS, SaveSlotSummarySchema } from '@/lib/schemas'
 import type { SaveSlotId, SaveSlotSummary } from '@/lib/schemas'
 import { useGamepadMenu } from '@/hooks/useGamepadMenu'
 import { LeaderboardMenu } from './LeaderboardMenu'
+import { loadLeaderboard } from '@/lib/leaderboard'
 
 // In-game asteroid voxel palette (mirrors ASTEROID_COLORS in asteroid-model.ts)
 const ROCK_PALETTE = ['#8b7355', '#6b5340', '#a08868'] as const
@@ -156,6 +157,12 @@ export function StartScreen({ onNewGame, onLoadGame }: StartScreenProps) {
   const [mode, setMode] = useState<ScreenMode>('main')
   const [summaries, setSummaries] = useState<Map<SaveSlotId, SaveSlotSummary>>(new Map())
   const [confirmSlot, setConfirmSlot] = useState<SaveSlotId | null>(null)
+  // Top leaderboard entry, computed once on mount. Refreshed if the player
+  // exits a run back here (the menu remounts via the screen state machine).
+  const bestEntry = useMemo(() => {
+    const board = loadLeaderboard()
+    return board.length > 0 ? board[0] : null
+  }, [])
 
   useEffect(() => {
     setSummaries(loadSlotSummaries())
@@ -335,9 +342,18 @@ export function StartScreen({ onNewGame, onLoadGame }: StartScreenProps) {
         <br />
         FRAK&apos;R
       </h1>
-      <p className="font-sans text-sm md:text-base text-hud-amber/70 mb-12 relative z-10">
+      <p className="font-sans text-sm md:text-base text-hud-amber/70 mb-6 relative z-10">
         Blast. Collect. Scrap. Upgrade.
       </p>
+      {bestEntry && (
+        <p className="font-mono text-xs md:text-sm tracking-[0.18em] text-hud-amber/65 mb-8 relative z-10">
+          BEST:{' '}
+          <span className="text-hud-amber font-bold">
+            {bestEntry.score.toLocaleString()}
+          </span>{' '}
+          · {bestEntry.initials}
+        </p>
+      )}
 
       {/* Main Menu */}
       {mode === 'main' && (

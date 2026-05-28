@@ -1,7 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { BUILD_VERSION } from '@/lib/build-version'
+import { loadLeaderboard } from '@/lib/leaderboard'
 
 interface TitleScreenProps {
   onBegin: () => void
@@ -19,6 +20,12 @@ const ORBIT_DOTS = [
 
 export function TitleScreen({ onBegin }: TitleScreenProps) {
   const beganRef = useRef(false)
+  // Read the leaderboard's top entry once on mount so the screen can show a
+  // brag-readable BEST line. Null when no scores have been recorded yet.
+  const bestEntry = useMemo(() => {
+    const all = loadLeaderboard()
+    return all.length > 0 ? all[0] : null
+  }, [])
 
   const begin = useCallback(() => {
     if (beganRef.current) return
@@ -154,6 +161,15 @@ export function TitleScreen({ onBegin }: TitleScreenProps) {
         <p className="mt-3 font-sans text-[10px] sm:text-xs tracking-[0.32em] text-white/40">
           TO BEGIN
         </p>
+        {bestEntry && (
+          <p className="mt-6 font-mono text-xs sm:text-sm tracking-[0.2em] text-hud-amber/70">
+            BEST:{' '}
+            <span className="text-hud-amber font-bold">
+              {bestEntry.score.toLocaleString()}
+            </span>{' '}
+            · {bestEntry.initials}
+          </p>
+        )}
       </div>
     </button>
   )
