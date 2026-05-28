@@ -177,6 +177,13 @@ export interface TickState {
   debugDtMultiplier: number
   /** When true, periodic patrol / Arbiter spawns are suppressed. */
   debugDisableEnemySpawns: boolean
+
+  /**
+   * Cinematic-time multiplier driven by gameplay events (not debug). Scene
+   * ramps this during the death sequence so the explosion + debris play out
+   * in slow motion. 1 = normal.
+   */
+  slowMoFactor: number
   optionCount: number
   speedTier: number
   armorCharges: number
@@ -449,6 +456,7 @@ export function createTickState(config?: TickStateConfig): TickState {
     debugGodMode: false,
     debugDtMultiplier: 1,
     debugDisableEnemySpawns: false,
+    slowMoFactor: 1,
     optionCount: config?.optionCount ?? 0,
     speedTier: config?.speedTier ?? 0,
     armorCharges: config?.armorCharges ?? 0,
@@ -1181,8 +1189,8 @@ function prologueTick(state: TickState, input: TickInput, result: TickResult): v
  */
 export function tick(state: TickState, input: TickInput): TickResult {
   const result = emptyResult()
-  // Apply the debug dt multiplier (default 1) so slow-mo / fast-forward is a
-  // single knob on tickState rather than threaded through every subsystem.
+  // Apply the debug dt multiplier (default 1). Cinematic slow-mo (e.g. the
+  // death sequence) is applied by the scene to input.dt before we get here.
   const dt = input.dt * state.debugDtMultiplier
 
   state.elapsedTime += dt
@@ -1237,7 +1245,13 @@ export function tick(state: TickState, input: TickInput): TickResult {
   // Firing is allowed in normal gameplay and during the prologue's free-play
   // mining phase — both use the same aim-gated rule. Other prologue beats
   // (intro, arbiter, dialogue, strip) never fire.
-  const firingAllowed = !isPrologue || input.tutorialStep === 'prologue-mining'
+  // No firing once the hull is gone. The scene continues to run for ~2.5s
+  // after playerKilled so the death animation can play, but we don't want
+  // the auto-fire path or missile auto-launcher conjuring shots out of the
+  // wreckage. Same gate prologue cutscenes use.
+  const playerAlive = state.playerHp > 0
+  const firingAllowed =
+    playerAlive && (!isPrologue || input.tutorialStep === 'prologue-mining')
 
   // Collection is always automatic — the magnet runs by default. `input.collecting`
   // (E key / mobile button / right-click) is now effectively cosmetic. Only the

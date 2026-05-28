@@ -1011,8 +1011,20 @@ export function createGameScene(
   function loop(): void {
     animId = requestAnimationFrame(loop)
     const now = performance.now()
-    const dt = Math.min((now - prevTime) / 1000, 0.05) // cap at 50ms
+    const rawDt = Math.min((now - prevTime) / 1000, 0.05) // cap at 50ms
     prevTime = now
+
+    // Cinematic slow-mo during the death sequence — eases the whole world
+    // (debris, VFX, simulation) into a 0.35x time scale over the first
+    // 30% of the timer, holds, then snaps back when the sequence ends.
+    let slowMo = 1
+    if (deathSequenceTimer !== null) {
+      const elapsed = DEATH_SEQUENCE_DURATION - deathSequenceTimer
+      const rampIn = Math.min(1, elapsed / (DEATH_SEQUENCE_DURATION * 0.3))
+      slowMo = 1 - 0.65 * rampIn
+    }
+    tickState.slowMoFactor = slowMo
+    const dt = rawDt * slowMo
 
     // --- Build per-frame input for the shared tick function ---
     const paused = getPaused()
@@ -1684,7 +1696,9 @@ export function createGameScene(
       }
 
       if (deathSequenceTimer !== null) {
-        deathSequenceTimer -= dt
+        // Tick the death timer on real wall-clock so the slow-mo doesn't
+        // stretch the 2.5-second window into a much longer one.
+        deathSequenceTimer -= rawDt
         // Keep the wreck where it died — don't let the input loop nudge
         // physics in the next iteration.
         ship.velocityX = 0
