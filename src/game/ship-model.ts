@@ -152,6 +152,93 @@ function buildArrowTurret(voxelSize: number): THREE.Group {
 }
 
 /**
+ * Hull-bulk module names. Stored as child Group names on the ship so we can
+ * remove them by name when the player's tier drops (e.g. on respawn).
+ */
+const HULL_MODULE_NAMES = ['hullScoop', 'hullCargoPods', 'hullWings'] as const
+
+/** Tier 1: front collector scoop (mint), evokes the prologue scoop. */
+function buildHullScoopModule(): THREE.Group {
+  const g = new THREE.Group()
+  g.name = 'hullScoop'
+  const scoop = 0x44cc88
+  addVoxel(g, -2, 3, 0, scoop)
+  addVoxel(g, 2, 3, 0, scoop)
+  addVoxel(g, -3, 2, 0, scoop)
+  addVoxel(g, 3, 2, 0, scoop)
+  return g
+}
+
+/** Tier 2: rear cargo pods flanking the engine. */
+function buildHullCargoPodsModule(): THREE.Group {
+  const g = new THREE.Group()
+  g.name = 'hullCargoPods'
+  const cargo = 0x888899
+  for (const side of [-1, 1]) {
+    const cx = side * 3
+    addVoxel(g, cx, -2, 0, cargo)
+    addVoxel(g, cx, -3, 0, cargo)
+    addVoxel(g, cx, -2, 0.6, cargo)
+    addVoxel(g, cx, -3, 0.6, cargo)
+  }
+  return g
+}
+
+/** Tier 3: extended wings + gold accents along the hull. */
+function buildHullWingsModule(): THREE.Group {
+  const g = new THREE.Group()
+  g.name = 'hullWings'
+  const gold = 0xccaa44
+  const wingTip = 0xe89030
+  // Swept-back wings either side.
+  for (let w = 3; w <= 4; w++) {
+    const row = -w + 2
+    addVoxel(g, -w, row, 0, gold)
+    addVoxel(g, w, row, 0, gold)
+  }
+  addVoxel(g, -4, -2, 0, wingTip)
+  addVoxel(g, 4, -2, 0, wingTip)
+  // Gold spine accents.
+  addVoxel(g, 0, -1, 0.6, gold)
+  addVoxel(g, 0, 1, 0.6, gold)
+  return g
+}
+
+/**
+ * Attach/detach hull modules on the running ship to match the player's
+ * `hull` upgrade tier. Tier 0 = stock ship, tier 3 = scoop + cargo + wings.
+ * Idempotent — safe to call every frame, only touches the scene graph when
+ * the visible set changes.
+ */
+export function applyHullModules(ship: THREE.Group, tier: number): void {
+  const wantScoop = tier >= 1
+  const wantCargo = tier >= 2
+  const wantWings = tier >= 3
+  const wants: Record<(typeof HULL_MODULE_NAMES)[number], boolean> = {
+    hullScoop: wantScoop,
+    hullCargoPods: wantCargo,
+    hullWings: wantWings,
+  }
+  // Remove any modules that are no longer wanted.
+  for (const name of HULL_MODULE_NAMES) {
+    const existing = ship.getObjectByName(name)
+    if (!wants[name] && existing) {
+      ship.remove(existing)
+      existing.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) {
+          obj.geometry.dispose()
+          if (obj.material instanceof THREE.Material) obj.material.dispose()
+        }
+      })
+    }
+  }
+  // Attach any that are wanted but missing.
+  if (wantScoop && !ship.getObjectByName('hullScoop')) ship.add(buildHullScoopModule())
+  if (wantCargo && !ship.getObjectByName('hullCargoPods')) ship.add(buildHullCargoPodsModule())
+  if (wantWings && !ship.getObjectByName('hullWings')) ship.add(buildHullWingsModule())
+}
+
+/**
  * Build the prologue maxed-out ship (~8×6×4 world units) with detachable module groups.
  * Named child groups: 'turrets', 'scoop', 'cargoPods', 'lazerLens'
  */

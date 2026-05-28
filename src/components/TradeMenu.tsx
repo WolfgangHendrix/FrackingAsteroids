@@ -106,6 +106,12 @@ const UPGRADE_CATALOG = [
     cost: DRONE_BAY_COST,
     description: 'Raises drone cap by +1 (max 4). Drones drill large rocks',
   },
+  {
+    type: 'hull' as const,
+    label: 'Hull Reinforcement',
+    cost: 180,
+    description: 'Bolt on visible modules: scoop, cargo pods, swept wings',
+  },
 ]
 
 interface TradeMenuProps {
@@ -331,7 +337,9 @@ function BuyPanel({
                 ? 1
                 : item.type === 'speed'
                   ? 5
-                  : item.type === 'armor' || item.type === 'shield'
+                  : item.type === 'armor' ||
+                      item.type === 'shield' ||
+                      item.type === 'hull'
                     ? 3
                     : item.type === 'smartBomb' ||
                         item.type === 'autoTool' ||
@@ -342,7 +350,13 @@ function BuyPanel({
                         : 5
 
         const maxed = currentLevel >= maxLevel
-        const canAfford = scrap >= item.cost && !maxed
+        // Auto Targeting Assist is the "capstone" — only buyable once the
+        // player has actually used all the weapons it would be auto-selecting
+        // between. Keeps the upgrade meaningful instead of a 0→100 shortcut.
+        const lockedByPrereq =
+          item.type === 'autoTool' &&
+          !(hasLazer && upgrades.ripple > 0 && upgrades.spread > 0)
+        const canAfford = scrap >= item.cost && !maxed && !lockedByPrereq
         const isFireRate = item.type === 'blaster'
         const highlight = isTutorial && isFireRate
 
@@ -362,8 +376,13 @@ function BuyPanel({
                 {item.label}
               </div>
               <div className="text-sm text-white/40">
-                {maxed ? 'MAX LEVEL' : item.description} —{' '}
-                {item.type === 'armor' || item.type === 'shield'
+                {maxed
+                  ? 'MAX LEVEL'
+                  : lockedByPrereq
+                    ? 'Requires Lazer + Ripple + Tri-Bolt'
+                    : item.description}{' '}
+                —{' '}
+                {item.type === 'armor' || item.type === 'shield' || item.type === 'hull'
                   ? `${currentLevel}/3`
                   : item.type === 'drone'
                     ? `${currentLevel}/4`
@@ -387,7 +406,7 @@ function BuyPanel({
                   : 'bg-white/5 border border-white/10 text-white/20 cursor-not-allowed'
               }`}
             >
-              {maxed ? 'MAX' : `${item.cost}`}
+              {maxed ? 'MAX' : lockedByPrereq ? 'LOCK' : `${item.cost}`}
             </button>
           </div>
         )

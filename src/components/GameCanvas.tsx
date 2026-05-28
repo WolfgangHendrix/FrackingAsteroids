@@ -8,7 +8,7 @@ import {
   forwardRef,
   useState,
 } from 'react'
-import type { GameScene, MetalVariant } from '@/game/scene'
+import type { GameScene, MetalVariant, DebugApi } from '@/game/scene'
 import type { TutorialStep } from '@/hooks/useTutorial'
 import type { MiningTool } from '@/game/types'
 import type { ArbiterHudInfo } from '@/game/arbiter-comms'
@@ -28,7 +28,7 @@ export interface GameCanvasHandle {
   getMiningDroneCount: () => number
   respawnAfterDeath: () => void
   /** Scene-side debug API (only meaningful when DEBUG_ENABLED). */
-  getDebugApi: () => import('@/game/scene').DebugApi | null
+  getDebugApi: () => DebugApi | null
 }
 
 interface GameCanvasProps {

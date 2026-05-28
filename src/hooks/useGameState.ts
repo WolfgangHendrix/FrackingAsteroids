@@ -37,6 +37,7 @@ const UPGRADE_MAX: Record<keyof Upgrades, number> = {
   autoTool: 1,
   drone: 4,
   spread: 1,
+  hull: 3,
 }
 
 export interface GameStateHook {

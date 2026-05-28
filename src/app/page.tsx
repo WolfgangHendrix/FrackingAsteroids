@@ -17,6 +17,7 @@ import { TutorialOverlay } from '@/components/TutorialOverlay'
 import { PrologueOverlay } from '@/components/PrologueOverlay'
 import { TradeMenu, LAZER_COST, MINING_DRONE_BUILD_COST } from '@/components/TradeMenu'
 import { LazerTutorialPopup } from '@/components/LazerTutorialPopup'
+import { DroneTutorialPopup } from '@/components/DroneTutorialPopup'
 import { PauseOverlay } from '@/components/PauseOverlay'
 import { DebugPanel } from '@/components/DebugPanel'
 import { ShopFab } from '@/components/ShopFab'
@@ -45,6 +46,7 @@ export default function Home() {
   const [inStationRange, setInStationRange] = useState(false)
   const [activeTool, setActiveTool] = useState<MiningTool>('blaster')
   const [lazerPopupVisible, setLazerPopupVisible] = useState(false)
+  const [dronePopupVisible, setDronePopupVisible] = useState(false)
   const [ledger, setLedger] = useState(0)
   const [arbiterHud, setArbiterHud] = useState<ArbiterHudInfo | null>(null)
   const [arbiterBanner, setArbiterBanner] = useState<ArbiterBannerData | null>(null)
@@ -219,7 +221,7 @@ export default function Home() {
                     ? 8
                     : type === 'options'
                       ? 2
-                      : type === 'armor'
+                      : type === 'armor' || type === 'hull'
                         ? 3
                         : type === 'drone'
                           ? 4
@@ -236,13 +238,23 @@ export default function Home() {
           gameCanvasRef.current?.setCollectorTier(upgrades.collector + 1)
         }
         gameCanvasRef.current?.setCombatUpgrades(nextUpgrades)
+        // First-ever Drone Bay purchase pops a one-time explainer so the
+        // player knows the radar is a command surface and that they still
+        // need to *build* individual drones at the station.
+        if (type === 'drone' && upgrades.drone === 0 && activeSlot) {
+          const key = `fracking-asteroids-drone-tutorial-${activeSlot}`
+          if (typeof localStorage !== 'undefined' && !localStorage.getItem(key)) {
+            localStorage.setItem(key, '1')
+            setDronePopupVisible(true)
+          }
+        }
         if (tutorial.active) {
           tutorial.onBoughtUpgrade()
         }
         requestSave()
       })
     },
-    [buyUpgrade, tutorial, requestSave, upgrades],
+    [buyUpgrade, tutorial, requestSave, upgrades, activeSlot],
   )
 
   // React-side mirror of the scene's drone count so the trade menu can
@@ -667,6 +679,10 @@ export default function Home() {
         />
       )}
       <LazerTutorialPopup visible={lazerPopupVisible} onDismiss={handleDismissLazerPopup} />
+      <DroneTutorialPopup
+        visible={dronePopupVisible}
+        onDismiss={() => setDronePopupVisible(false)}
+      />
       <PauseOverlay visible={paused} onResume={togglePause} />
       <DebugPanel
         canvasRef={gameCanvasRef}

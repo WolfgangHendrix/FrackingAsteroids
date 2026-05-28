@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { createShipModel } from './ship-model'
+import { createShipModel, applyHullModules } from './ship-model'
 import { createAsteroidModel } from './asteroid-model'
 import { spawnAsteroidField, spawnPrologueField } from './asteroid-spawner'
 import { createArbiterModel } from './arbiter-model'
@@ -504,47 +504,105 @@ export function createGameScene(
   }
 
   function createDroneMesh(): THREE.Group {
+    // Voxel-bot silhouette: short blocky chassis with side struts, a tiny
+    // forward drill, and rear thrusters. Built from the same flat-shaded
+    // material the ship uses so it reads as part of the player faction —
+    // not as one of the round glowing Option orbs.
     const g = new THREE.Group()
-    // Body — small triangular plate angled to suggest a forward direction.
-    const bodyGeom = new THREE.ConeGeometry(1.6, 3.2, 5)
-    const body = new THREE.Mesh(
-      bodyGeom,
-      new THREE.MeshStandardMaterial({
-        color: 0x445566,
-        emissive: 0x223344,
-        emissiveIntensity: 0.4,
-        metalness: 0.5,
-        roughness: 0.4,
-      }),
+    const HULL = 0x556677
+    const DARK = 0x2a3340
+    const STRUT = 0x778899
+    const DRILL = 0xcdd2db
+    const THRUST = 0xff7a1a
+    const hullMat = new THREE.MeshStandardMaterial({
+      color: HULL,
+      flatShading: true,
+      metalness: 0.4,
+      roughness: 0.55,
+    })
+    const darkMat = new THREE.MeshStandardMaterial({
+      color: DARK,
+      flatShading: true,
+      metalness: 0.3,
+      roughness: 0.7,
+    })
+    const strutMat = new THREE.MeshStandardMaterial({
+      color: STRUT,
+      flatShading: true,
+      metalness: 0.5,
+      roughness: 0.4,
+    })
+    const drillMat = new THREE.MeshStandardMaterial({
+      color: DRILL,
+      flatShading: true,
+      metalness: 0.7,
+      roughness: 0.25,
+    })
+    const thrustMat = new THREE.MeshBasicMaterial({ color: THRUST })
+
+    const addBox = (
+      mat: THREE.Material,
+      sx: number,
+      sy: number,
+      sz: number,
+      px: number,
+      py: number,
+      pz: number,
+    ): void => {
+      const box = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat)
+      box.position.set(px, py, pz)
+      g.add(box)
+    }
+
+    // Main chassis — flat rectangular box, slightly longer than wide.
+    addBox(hullMat, 1.8, 2.6, 0.8, 0, 0, 0)
+    // Side strut wings on each flank.
+    addBox(strutMat, 0.7, 1.4, 0.5, -1.4, 0.1, 0)
+    addBox(strutMat, 0.7, 1.4, 0.5, 1.4, 0.1, 0)
+    // Dark armored "shoulders" — visual breakup.
+    addBox(darkMat, 0.5, 0.6, 0.6, -1.05, 0.9, 0)
+    addBox(darkMat, 0.5, 0.6, 0.6, 1.05, 0.9, 0)
+    // Forward drill spike — short cylinder pointing along local +Y.
+    const drill = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.18, 0.32, 0.9, 6),
+      drillMat,
     )
-    body.rotation.x = Math.PI / 2
-    g.add(body)
+    drill.position.set(0, 1.7, 0)
+    drill.rotation.x = Math.PI / 2
+    drill.rotation.z = Math.PI / 2
+    drill.name = 'drill'
+    g.add(drill)
+    // Rear thruster blips.
+    addBox(thrustMat, 0.35, 0.35, 0.35, -0.5, -1.55, 0)
+    addBox(thrustMat, 0.35, 0.35, 0.35, 0.5, -1.55, 0)
 
     // Glowing status-light core, recolored each frame based on drone state.
+    // Smaller and centered on the chassis top so it reads as a beacon, not
+    // the whole drone.
     const core = new THREE.Mesh(
-      new THREE.SphereGeometry(0.55, 12, 8),
+      new THREE.SphereGeometry(0.35, 12, 8),
       new THREE.MeshBasicMaterial({
         color: 0x88ccff,
         transparent: true,
         opacity: 0.95,
       }),
     )
-    core.position.z = 0.6
+    core.position.set(0, 0.1, 0.55)
     core.name = 'core'
     g.add(core)
 
-    // Soft halo around the core for visibility against bright backdrops.
+    // Soft halo around the beacon for visibility against bright backdrops.
     const halo = new THREE.Mesh(
-      new THREE.SphereGeometry(1.1, 12, 8),
+      new THREE.SphereGeometry(0.7, 12, 8),
       new THREE.MeshBasicMaterial({
         color: 0x88ccff,
         transparent: true,
-        opacity: 0.35,
+        opacity: 0.3,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
     )
-    halo.position.z = 0.6
+    halo.position.set(0, 0.1, 0.55)
     halo.name = 'halo'
     g.add(halo)
     return g
@@ -1988,6 +2046,14 @@ export function createGameScene(
         if (halo && halo.material instanceof THREE.MeshBasicMaterial) {
           halo.material.color.setHex(color)
         }
+        // Spin the drill bit while actively drilling — visual cue that the
+        // bot is doing work even when the camera doesn't focus on it.
+        const drill = mesh.getObjectByName('drill') as THREE.Mesh | undefined
+        if (drill) {
+          if (drone.state === 'drilling') {
+            drill.rotation.y += 12 * dt
+          }
+        }
         // Spin to face direction of travel when moving; otherwise hold a
         // gentle bob so idle drones don't look frozen.
         const speedSq = drone.vx * drone.vx + drone.vy * drone.vy
@@ -2322,6 +2388,9 @@ export function createGameScene(
     tickState.spreadTier = upgrades.spread
     lazerUnlocked = upgrades.lazer > 0
     tickState.autoToolUnlocked = upgrades.autoTool > 0
+    // Bulk the visible ship to match the player's purchases — scoop at tier
+    // 1, cargo pods at tier 2, swept wings + gold accents at tier 3.
+    applyHullModules(shipModel, upgrades.hull)
     // If the currently-selected tool is no longer unlocked, fall back to
     // blaster so the player isn't stranded on a tool they can't fire.
     if (tickState.activeMiningTool === 'lazer' && !lazerUnlocked) {
