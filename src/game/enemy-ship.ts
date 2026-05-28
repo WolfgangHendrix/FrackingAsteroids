@@ -1068,12 +1068,35 @@ export function checkProjectileEnemyCollisions(
       continue
     }
 
-    const dx = p.x - enemy.x
-    const dy = p.y - enemy.y
-    const distSq = dx * dx + dy * dy
+    // Swept segment-vs-circle: the projectile traversed the line from its
+    // previous position to its current one this frame, so check the whole
+    // segment against the enemy's hit disc. Without this, fast bolts can
+    // step past small enemies (snipers, drones) in a single frame and the
+    // bolt visibly passes through with no damage.
     const minDist = PROJECTILE_RADIUS + enemy.collisionRadius
+    const sx = p.prevX
+    const sy = p.prevY
+    const ex = p.x
+    const ey = p.y
+    const segDx = ex - sx
+    const segDy = ey - sy
+    const segLenSq = segDx * segDx + segDy * segDy
+    let closestDistSq: number
+    if (segLenSq < 0.0001) {
+      const cdx = ex - enemy.x
+      const cdy = ey - enemy.y
+      closestDistSq = cdx * cdx + cdy * cdy
+    } else {
+      let t = ((enemy.x - sx) * segDx + (enemy.y - sy) * segDy) / segLenSq
+      t = Math.max(0, Math.min(1, t))
+      const px = sx + t * segDx
+      const py = sy + t * segDy
+      const cdx = px - enemy.x
+      const cdy = py - enemy.y
+      closestDistSq = cdx * cdx + cdy * cdy
+    }
 
-    if (distSq < minDist * minDist) {
+    if (closestDistSq < minDist * minDist) {
       enemy.hp = Math.max(0, enemy.hp - p.damage)
       hitProjectileIds.push(p.id)
       if (enemy.hp <= 0) {

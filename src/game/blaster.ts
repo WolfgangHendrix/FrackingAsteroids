@@ -216,6 +216,8 @@ function makeProjectile(
     id: generateProjectileId(),
     x,
     y,
+    prevX: x,
+    prevY: y,
     velocityX: Math.cos(angle) * speed,
     velocityY: Math.sin(angle) * speed,
     damage,
@@ -239,6 +241,8 @@ export function updateProjectiles(
   const surviving: Projectile[] = []
 
   for (const p of projectiles) {
+    p.prevX = p.x
+    p.prevY = p.y
     p.x += p.velocityX * dt
     p.y += p.velocityY * dt
 

@@ -82,6 +82,11 @@ export interface Projectile {
   id: string
   x: number
   y: number
+  /** Previous-frame position. Lets collision do a swept segment check so
+   *  fast bolts can't tunnel past small targets (snipers, drones) between
+   *  fixed-step physics frames. */
+  prevX: number
+  prevY: number
   velocityX: number
   velocityY: number
   damage: number
