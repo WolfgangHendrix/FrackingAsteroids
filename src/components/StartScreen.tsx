@@ -6,6 +6,7 @@ import type { SaveSlotId, SaveSlotSummary } from '@/lib/schemas'
 import { useGamepadMenu } from '@/hooks/useGamepadMenu'
 import { LeaderboardMenu } from './LeaderboardMenu'
 import { loadLeaderboard } from '@/lib/leaderboard'
+import { BUILD_VERSION } from '@/lib/build-version'
 
 // In-game asteroid voxel palette (mirrors ASTEROID_COLORS in asteroid-model.ts)
 const ROCK_PALETTE = ['#8b7355', '#6b5340', '#a08868'] as const
@@ -126,16 +127,34 @@ export function clearSlotSummary(slotId: SaveSlotId): void {
 
 type ScreenMode = 'main' | 'new-game' | 'load-game' | 'credits' | 'leaderboards'
 
-/** A single credit block: a role heading and one or more attribution lines. */
+/**
+ * A single credit block: a role heading and one or more attribution lines.
+ * The first line is the primary credit (full-weight white); any subsequent
+ * lines are sub-credits (smaller, slightly dimmer) so things like "(via
+ * Pixabay)" don't read as standalone entries.
+ */
 function CreditSection({ role, lines }: { role: string; lines: string[] }) {
+  const [primary, ...rest] = lines
   return (
-    <div className="flex flex-col items-center gap-1">
-      <p className="font-sans text-xs tracking-[0.22em] text-hud-amber/70 uppercase">{role}</p>
-      {lines.map((line) => (
-        <p key={line} className="font-sans text-sm md:text-base text-white/85 text-center">
-          {line}
-        </p>
-      ))}
+    <div className="flex flex-col items-center gap-1.5">
+      <p className="font-sans text-[0.7rem] sm:text-xs tracking-[0.24em] text-hud-amber/85 uppercase">
+        {role}
+      </p>
+      <p className="font-sans text-sm md:text-base text-white/90 text-center leading-snug">
+        {primary}
+      </p>
+      {rest.length > 0 && (
+        <div className="flex flex-col items-center gap-0.5">
+          {rest.map((line) => (
+            <p
+              key={line}
+              className="font-sans text-xs sm:text-sm text-white/55 text-center leading-snug"
+            >
+              {line}
+            </p>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -395,29 +414,42 @@ export function StartScreen({ onNewGame, onLoadGame }: StartScreenProps) {
 
       {/* Credits */}
       {mode === 'credits' && (
-        <div className="flex flex-col gap-5 items-center relative z-10 w-full max-w-sm px-4">
-          <CreditSection role="Developer" lines={['Santiago Salvador']} />
-          <CreditSection
-            role="Original Concept & Base Code"
-            lines={['Randy Lutcavich (Randroid.dev)']}
-          />
-          <CreditSection
-            role="Music & Audio"
-            lines={[
-              'Thinking Overture by DSTechnician',
-              '(via Pixabay)',
-              'Arranged & Implemented by Santiago Salvador',
-            ]}
-          />
-          <CreditSection
-            role="Voiceovers"
-            lines={['Generated via RObo-Voice Generator', 'by Santiago Salvador']}
-          />
+        <div
+          className="flex flex-col items-center relative z-10 w-full max-w-sm md:max-w-md px-4"
+          style={{ maxHeight: 'calc(100dvh - 8rem)' }}
+        >
+          {/* Scrollable panel so credits never spill past the BACK button on
+              short screens. Subtle backdrop pulls the text off the starfield
+              without competing with the menu chrome. */}
+          <div className="w-full overflow-y-auto overscroll-contain bg-space-900/55 border border-hud-amber/25 rounded-lg px-5 py-5 flex flex-col gap-5 items-center">
+            <CreditSection role="Developer" lines={['Santiago Salvador']} />
+            <div className="w-12 h-px bg-white/10" aria-hidden="true" />
+            <CreditSection
+              role="Original Concept & Base Code"
+              lines={['Randy Lutcavich', 'Randroid.dev']}
+            />
+            <div className="w-12 h-px bg-white/10" aria-hidden="true" />
+            <CreditSection
+              role="Music & Audio"
+              lines={[
+                'Thinking Overture by DSTechnician (via Pixabay)',
+                'Arranged & implemented by Santiago Salvador',
+              ]}
+            />
+            <div className="w-12 h-px bg-white/10" aria-hidden="true" />
+            <CreditSection
+              role="Voiceovers"
+              lines={['RObo-Voice Generator', 'directed by Santiago Salvador']}
+            />
+            <p className="font-mono text-[10px] tracking-[0.18em] text-white/35 mt-2">
+              v{BUILD_VERSION}
+            </p>
+          </div>
           <button
             data-menu-item
             data-menu-back
             onClick={handleBack}
-            className="mt-2 px-6 py-3 min-h-[44px] text-white/40 font-sans text-base hover:text-white/70 focus:text-white focus:outline-none focus:ring-2 focus:ring-white/40 rounded transition-colors"
+            className="mt-3 px-6 py-3 min-h-[44px] text-white/40 font-sans text-base hover:text-white/70 focus:text-white focus:outline-none focus:ring-2 focus:ring-white/40 rounded transition-colors"
           >
             BACK
           </button>
