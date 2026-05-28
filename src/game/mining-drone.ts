@@ -60,18 +60,40 @@ export function createMiningDrone(spawnX: number, spawnY: number): MiningDrone {
   }
 }
 
-function pickTargetAsteroid(drone: MiningDrone, asteroids: readonly Asteroid[]): Asteroid | null {
-  // Prefer 'large' rocks per the design spec — drones are the only safe way
-  // to mine the biggest asteroids without committing the ship to a long
-  // engagement.
+/** Radius around a rally point inside which drones preferentially work. */
+const RALLY_PREFERENCE_RADIUS = 80
+const RALLY_PREFERENCE_RADIUS_SQ = RALLY_PREFERENCE_RADIUS * RALLY_PREFERENCE_RADIUS
+
+function pickTargetAsteroid(
+  drone: MiningDrone,
+  asteroids: readonly Asteroid[],
+  rally: { x: number; y: number } | null,
+): Asteroid | null {
+  // Size: 0=moon, 1=large, 2=medium, 3=small. Drones go after the two
+  // biggest classes — they're the ones the player would otherwise spend a
+  // long time chipping at manually.
+  //
+  // When a rally point is set, prefer rocks inside the rally radius; fall
+  // back to nearest-to-drone if nothing matches. That way redirecting an
+  // exhausted area doesn't strand the fleet.
   let best: Asteroid | null = null
   let bestDistSq = Infinity
+  if (rally) {
+    for (const a of asteroids) {
+      if (a.hp <= 0 || a.size > 1) continue
+      const dSqRally = (a.x - rally.x) ** 2 + (a.y - rally.y) ** 2
+      if (dSqRally > RALLY_PREFERENCE_RADIUS_SQ) continue
+      const dSq = (a.x - drone.x) ** 2 + (a.y - drone.y) ** 2
+      if (dSq < bestDistSq) {
+        bestDistSq = dSq
+        best = a
+      }
+    }
+    if (best) return best
+    bestDistSq = Infinity
+  }
   for (const a of asteroids) {
-    if (a.hp <= 0) continue
-    // Size: 0=moon, 1=large, 2=medium, 3=small. Drones go after the two
-// biggest classes — they're the ones the player would otherwise spend a
-// long time chipping at manually.
-if (a.size > 1) continue
+    if (a.hp <= 0 || a.size > 1) continue
     const dSq = (a.x - drone.x) ** 2 + (a.y - drone.y) ** 2
     if (dSq < bestDistSq) {
       bestDistSq = dSq
@@ -99,6 +121,7 @@ export function updateMiningDrones(
   shipX: number,
   shipY: number,
   dt: number,
+  rallyPoint: { x: number; y: number } | null = null,
 ): MiningDroneTickResult {
   const result: MiningDroneTickResult = { scrapDeposited: 0, dockedDrones: [] }
   const asteroidById = new Map(asteroids.map((a) => [a.id, a]))
@@ -124,15 +147,18 @@ export function updateMiningDrones(
       }
 
       case 'seeking': {
-        const target = pickTargetAsteroid(drone, asteroids)
+        const target = pickTargetAsteroid(drone, asteroids, rallyPoint)
         if (!target) {
-          // No work — orbit the ship lazily so the player can see we're idle.
+          // No work — head to rally point if one is set, otherwise orbit the
+          // ship lazily so the player can see the fleet is idle.
           drone.targetId = null
-          const dx = shipX - drone.x
-          const dy = shipY - drone.y
+          const homeX = rallyPoint ? rallyPoint.x : shipX
+          const homeY = rallyPoint ? rallyPoint.y : shipY
+          const dx = homeX - drone.x
+          const dy = homeY - drone.y
           const d = Math.hypot(dx, dy)
           if (d > 12) {
-            const inv = SEEK_SPEED * 0.4 / d
+            const inv = (SEEK_SPEED * 0.4) / d
             drone.x += dx * inv * dt
             drone.y += dy * inv * dt
           }

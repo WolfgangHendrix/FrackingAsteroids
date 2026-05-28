@@ -85,7 +85,7 @@ import {
   stopArbiterSiren,
   disposeSfx,
 } from './sfx'
-import { createRadar, updateRadar, disposeRadar } from './radar'
+import { createRadar, updateRadar, disposeRadar, radarClickToWorld } from './radar'
 import type { Radar, RadarBlip } from './radar'
 import { createScreenShake, addTrauma, updateScreenShake } from './screen-shake'
 import type { ScreenShake } from './screen-shake'
@@ -266,6 +266,29 @@ export function createGameScene(
 
   // --- Radar mini-map (lower-left overlay canvas) ---
   const radar: Radar | null = createRadar(container)
+
+  // Radar click → rally point. Clicks near the radar center (the ship icon)
+  // clear an existing rally; clicks elsewhere set a new one in world coords.
+  function onRadarPointerDown(e: PointerEvent): void {
+    if (!radar) return
+    if (getPaused()) return
+    // Drone upgrade not yet purchased → ignore so the radar stays decorative.
+    if (tickState.miningDroneCap <= 0) return
+    e.preventDefault()
+    const world = radarClickToWorld(radar, e.clientX, e.clientY, ship.x, ship.y)
+    if (!world) return
+    const dxShip = world.x - ship.x
+    const dyShip = world.y - ship.y
+    // Click on / near the ship icon (within ~20 world units) clears the rally.
+    if (dxShip * dxShip + dyShip * dyShip < 20 * 20) {
+      tickState.rallyPoint = null
+    } else {
+      tickState.rallyPoint = world
+    }
+  }
+  if (radar) {
+    radar.canvas.addEventListener('pointerdown', onRadarPointerDown)
+  }
 
   // --- Scene ---
   const scene = new THREE.Scene()
@@ -1919,8 +1942,10 @@ export function createGameScene(
           shipRotation: ship.rotation,
           asteroids: asteroids.filter((a) => a.hp > 0),
           enemies: radarEnemies,
+          drones: tickState.miningDrones.map((d) => ({ x: d.x, y: d.y, state: d.state })),
           station: { x: GAS_STATION_X, y: GAS_STATION_Y },
           arbiter: arbiterModel ? { x: arbiterModel.position.x, y: arbiterModel.position.y } : null,
+          rally: tickState.rallyPoint,
         })
       }
 
@@ -2041,7 +2066,10 @@ export function createGameScene(
     disposeMusic()
 
     // Remove the radar overlay canvas
-    if (radar) disposeRadar(radar)
+    if (radar) {
+      radar.canvas.removeEventListener('pointerdown', onRadarPointerDown)
+      disposeRadar(radar)
+    }
 
     // Clean up background effects & engine trail
     disposeTwinkleStars(twinkleStars)

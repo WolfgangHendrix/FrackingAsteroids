@@ -163,6 +163,8 @@ export interface TickState {
   miningDroneCap: number
   /** All currently-built player mining drones. Built one-at-a-time at station. */
   miningDrones: MiningDrone[]
+  /** Optional player-set rally world coordinate. Drones prefer rocks here. */
+  rallyPoint: { x: number; y: number } | null
   optionCount: number
   speedTier: number
   armorCharges: number
@@ -430,6 +432,7 @@ export function createTickState(config?: TickStateConfig): TickState {
     autoToolUnlocked: false,
     miningDroneCap: 0,
     miningDrones: [],
+    rallyPoint: null,
     optionCount: config?.optionCount ?? 0,
     speedTier: config?.speedTier ?? 0,
     armorCharges: config?.armorCharges ?? 0,
@@ -1911,6 +1914,7 @@ export function tick(state: TickState, input: TickInput): TickResult {
       state.ship.x,
       state.ship.y,
       dt,
+      state.rallyPoint,
     )
     if (droneOutcome.scrapDeposited > 0) {
       result.droneScrapDelivered += droneOutcome.scrapDeposited

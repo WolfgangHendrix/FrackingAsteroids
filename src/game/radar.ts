@@ -21,6 +21,11 @@ export interface RadarBlip {
   y: number
 }
 
+export interface DroneBlip extends RadarBlip {
+  /** Drone state — picks the dot color so the player can see what's happening. */
+  state: 'seeking' | 'drilling' | 'returning' | 'retreating'
+}
+
 export interface RadarData {
   shipX: number
   shipY: number
@@ -28,13 +33,20 @@ export interface RadarData {
   shipRotation: number
   asteroids: RadarBlip[]
   enemies: RadarBlip[]
+  drones: DroneBlip[]
   station: RadarBlip | null
   arbiter: RadarBlip | null
+  /** Active rally point in world coords, or null if drones are unguided. */
+  rally: RadarBlip | null
 }
 
 export interface Radar {
   canvas: HTMLCanvasElement
   ctx: CanvasRenderingContext2D
+  /** Public CSS size of the canvas — exposed so callers can map clicks back to world coords. */
+  size: number
+  /** World-space distance from the player mapped to the radar rim. */
+  range: number
 }
 
 /** Create the radar canvas and attach it to the game container. */
@@ -48,7 +60,9 @@ export function createRadar(container: HTMLElement): Radar | null {
   canvas.style.bottom = '14px'
   canvas.style.width = `${RADAR_CSS_SIZE}px`
   canvas.style.height = `${RADAR_CSS_SIZE}px`
-  canvas.style.pointerEvents = 'none'
+  // Pointer events enabled so the player can click/tap to set a rally point.
+  canvas.style.pointerEvents = 'auto'
+  canvas.style.cursor = 'crosshair'
   canvas.style.zIndex = '30'
 
   const ctx = canvas.getContext('2d')
@@ -56,7 +70,33 @@ export function createRadar(container: HTMLElement): Radar | null {
   ctx.scale(dpr, dpr)
 
   container.appendChild(canvas)
-  return { canvas, ctx }
+  return { canvas, ctx, size: RADAR_CSS_SIZE, range: RADAR_RANGE }
+}
+
+/**
+ * Convert a click on the radar canvas to a world-space coordinate centered
+ * on the ship. Returns null if the click was outside the radar's circular
+ * face (so we don't accidentally rally to a corner of the canvas square).
+ */
+export function radarClickToWorld(
+  radar: Radar,
+  clientX: number,
+  clientY: number,
+  shipX: number,
+  shipY: number,
+): { x: number; y: number } | null {
+  const rect = radar.canvas.getBoundingClientRect()
+  const lx = clientX - rect.left
+  const ly = clientY - rect.top
+  const cx = radar.size / 2
+  const cy = radar.size / 2
+  const rim = radar.size / 2 - RIM_MARGIN
+  const dx = lx - cx
+  const dy = ly - cy
+  if (dx * dx + dy * dy > rim * rim) return null
+  const scale = rim / radar.range
+  // Canvas Y points down but world Y points up — invert.
+  return { x: shipX + dx / scale, y: shipY - dy / scale }
 }
 
 /** Redraw the radar for the current frame. */
@@ -136,6 +176,42 @@ export function updateRadar(radar: Radar, data: RadarData): void {
     const { px, py } = project(e.x, e.y)
     ctx.beginPath()
     ctx.arc(px, py, 3, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  // --- Rally point — soft amber crosshair so the player can see the order ---
+  if (data.rally) {
+    const { px, py } = project(data.rally.x, data.rally.y)
+    const r = 6
+    ctx.strokeStyle = 'rgba(255, 216, 102, 0.85)'
+    ctx.lineWidth = 1.25
+    ctx.beginPath()
+    ctx.arc(px, py, r, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(px - r - 2, py)
+    ctx.lineTo(px - r + 2, py)
+    ctx.moveTo(px + r - 2, py)
+    ctx.lineTo(px + r + 2, py)
+    ctx.moveTo(px, py - r - 2)
+    ctx.lineTo(px, py - r + 2)
+    ctx.moveTo(px, py + r - 2)
+    ctx.lineTo(px, py + r + 2)
+    ctx.stroke()
+  }
+
+  // --- Mining drones — color-coded by state ---
+  const DRONE_RADAR_COLOR: Record<DroneBlip['state'], string> = {
+    seeking: '#88ccff',
+    drilling: '#ff8833',
+    returning: '#77ffcc',
+    retreating: '#ff4466',
+  }
+  for (const d of data.drones) {
+    const { px, py } = project(d.x, d.y)
+    ctx.fillStyle = DRONE_RADAR_COLOR[d.state]
+    ctx.beginPath()
+    ctx.arc(px, py, 2.4, 0, Math.PI * 2)
     ctx.fill()
   }
 
