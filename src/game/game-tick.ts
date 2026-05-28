@@ -288,6 +288,9 @@ export interface TickState {
   prologueEnemiesKilled: number
   prologueArbiterSpawned: boolean
   prologueShipFrozen: boolean
+  /** Set true at the top of tick whenever the tutorial step is a prologue
+   *  beat — damagePlayer no-ops while this is on. Cleared every tick. */
+  prologueInvulnerable: boolean
   prologueStripPhase: number
   prologueStripTimer: number
   /** Arbiter approach distance remaining (scene.ts decrements, tick checks). */
@@ -554,6 +557,7 @@ export function createTickState(config?: TickStateConfig): TickState {
     prologueEnemiesKilled: 0,
     prologueArbiterSpawned: false,
     prologueShipFrozen: false,
+    prologueInvulnerable: false,
     prologueStripPhase: 0,
     prologueStripTimer: 0,
     prologueArbiterDistance: ARBITER_SPAWN_DISTANCE,
@@ -976,6 +980,12 @@ function damagePlayer(
   oneHitKill: boolean,
 ): void {
   if (state.debugGodMode) return
+  // The prologue is a scripted power demo — the player isn't supposed to
+  // die in it. With one-shot-kill on, a single stray hit during the intro
+  // would zero HP and lock firing (firingAllowed is gated on playerHp > 0),
+  // leaving the player stuck unable to mine the asteroids that gate the
+  // next tutorial step. So damage is fully absorbed while in the prologue.
+  if (state.prologueInvulnerable) return
   if (state.invulnerabilityTimer > 0) return
   if (absorbDamageWithShield(state, result)) return
   if (oneHitKill && absorbDamageWithArmor(state, result)) return
@@ -1346,6 +1356,7 @@ export function tick(state: TickState, input: TickInput): TickResult {
 
   // --- Prologue auto-behavior ---
   const isPrologue = input.tutorialStep.startsWith('prologue-')
+  state.prologueInvulnerable = isPrologue
   if (isPrologue) {
     prologueTick(state, input, result)
 
